@@ -82,7 +82,7 @@ function init() {
 
 	// Provide a DRACOLoader instance to decode compressed mesh data
 	const dracoLoader = new DRACOLoader();
-	dracoLoader.setDecoderPath('/node_modules/three/examples/jsm/libs/draco/');
+	dracoLoader.setDecoderPath('./node_modules/three/examples/jsm/libs/draco/');
 	dracoLoader.preload();
 	loader.setDRACOLoader(dracoLoader);
 
