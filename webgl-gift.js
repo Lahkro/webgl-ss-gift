@@ -10,15 +10,9 @@
 
 import * as THREE from 'three';
 import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js'
-import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-import { OutlinePass } from 'three/addons/postprocessing/OutlinePass.js';
-import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
-import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
-import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
-import { SMAAPass } from 'three/addons/postprocessing/SMAAPass.js';
-import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+import { OutlineEffect } from 'three/addons/effects/OutlineEffect.js';
 import WebGL from "three/addons/capabilities/WebGL.js";
 
 // SCENE & MODEL OPTIONS //
@@ -34,25 +28,18 @@ const options = {
 	cameraPath: './public/models/camera.glb',
 
 	// Model Options
-	boxModelPath: './public/models/present_combined.glb',
+	presentModelPath: './public/models/present_compressed.glb',
 	outlineColor: new THREE.Color(0x000000),
 	ribbonColor: new THREE.Color(0xFF9C00),
-	lidColor: new THREE.Color(0x0D2207),
+	lidColor: new THREE.Color(0x13370a),
+	boxColor: new THREE.Color(0x0D2207),
 	insideColor: new THREE.Color(0xFFFFFF),
-	trailColor: new THREE.Color(0xFFC94A),
-	boxTexture: './public/textures/octad_xmas_wrapping_paper.png',
+	effectColor: new THREE.Color(0xFFC94A),
+	boxTexture: './public/textures/octad_xmas_wrapping_paper.webp',
 }
 
-// EFFECT OPTIONS //
-const bloomParams = {
-	threshold: 0.9,
-	strength: 0.2,
-	radius: 0,
-	exposure: 1
-};
-
 let windowWidth, windowHeight, windowAspectRatio, scale;
-let clock, scene, renderer, composer, camera, loader, mixer, controls;
+let clock, scene, renderer, effect, camera, loader, mixer, controls;
 
 
 // Checks for WebGL support
@@ -81,25 +68,26 @@ function init() {
 	clock = new THREE.Clock();
 	scene = new THREE.Scene();
 
-	renderer = new THREE.WebGLRenderer();
+	renderer = new THREE.WebGLRenderer({ antialias: true });
 	renderer.setSize(windowWidth, windowHeight);
 	renderer.setPixelRatio(window.devicePixelRatio);
+	renderer.shadowMap.enabled = true;
 	document.body.appendChild(renderer.domElement);
 
 	window.addEventListener('resize', onWindowResize);
 
-	camera = new THREE.PerspectiveCamera(options.cameraFOV, windowAspectRatio, 0.1, 1000);
-	mixer;
+	camera = new THREE.PerspectiveCamera(options.cameraFOV, windowAspectRatio, 0.1, 100);
 
 	loader = new GLTFLoader();
 
-	//Provide a DRACOLoader instance to decode compressed mesh data
+	// Provide a DRACOLoader instance to decode compressed mesh data
 	const dracoLoader = new DRACOLoader();
-	dracoLoader.setDecoderPath('three/addons/loaders/libs/draco/');
+	dracoLoader.setDecoderPath('/node_modules/three/examples/jsm/libs/draco/');
+	dracoLoader.preload();
 	loader.setDRACOLoader(dracoLoader);
 
+	// 
 	controls = new OrbitControls(camera, renderer.domElement);
-	composer = new EffectComposer(renderer);
 
 	// Environment, camera, and light settings
 	scene.background = options.backgroundColor;
@@ -108,76 +96,57 @@ function init() {
 	camera.rotation.set(...options.cameraRotation);
 	controls.update();
 
+	const ambientLight = new THREE.AmbientLight(new THREE.Color('gray'));
+	scene.add(ambientLight);
+
 	const light = new THREE.PointLight(options.lightColor, options.lightIntensity, 100);
 	light.position.set(...options.lightPosition);
 	light.castShadow = true;
+	light.shadow.mapSize.width = 2048; // default
+	light.shadow.mapSize.height = 2048; // default
+	light.shadow.bias = -0.0001;
+	light.shadow.radius = -0.0001;
 	scene.add(light);
 
-	// Render Passes
-	const renderPass = new RenderPass(scene, camera);
-	composer.addPass(renderPass);
-
-	const outlinePass = new OutlinePass(new THREE.Vector2(windowWidth, windowHeight), scene, camera);
-	outlinePass.visibleEdgeColor.set(options.outlineColor);
-	outlinePass.overlayMaterial.blending = THREE.CustomBlending;
-	composer.addPass(outlinePass);
-
-	const bloomPass = new UnrealBloomPass(new THREE.Vector2(window.innerWidth, window.innerHeight), 1.5, 0.4, 0.85);
-	bloomPass.threshold = bloomParams.threshold;
-	bloomPass.strength = bloomParams.strength;
-	bloomPass.radius = bloomParams.radius;
-	composer.addPass(bloomPass);
-
-	const smaaPass = new SMAAPass(windowWidth * renderer.getPixelRatio(), windowHeight * renderer.getPixelRatio());
-	composer.addPass(smaaPass);
-
-	const outputPass = new OutputPass();
-	composer.addPass(outputPass);
+	effect = new OutlineEffect(renderer);
 
 	// Import/Load Present GLTF
-	loader.load(options.boxModelPath, function (gltf) {
-
-		const lightTrails = new THREE.MeshBasicMaterial({
-			color: options.trailColor
-		});
-
-		let outlinedObjects = [];
+	loader.load(options.presentModelPath, function (gltf) {
 
 		// Traverse model for overrides
 		gltf.scene.traverse((obj) => {
 
-			obj.castShadow = true;
-			obj.receiveShadow = true;
-
 			// Override Materials with Toon Shading
 			if (obj.material) {
-				if (obj.material.name == 'Ribbon') {
-					obj.material = materialConvert(new THREE.MeshToonMaterial(), obj.material, options.ribbonColor);
-				}
 
-				if (obj.material.name == 'Box Wrapping Top') {
-					obj.material = materialConvert(new THREE.MeshToonMaterial(), obj.material, options.lidColor);
-				}
+				if (obj.material.name == 'Effect') { // Effect or particle objects
+					obj.material = materialConvert(new THREE.MeshBasicMaterial(), obj.material, options.effectColor);
+					obj.material.side = THREE.DoubleSide;
 
-				if (obj.material.name == "Box Wrapping") {
-					obj.material = materialConvert(new THREE.MeshToonMaterial(), obj.material);
-				}
+				} else { // Non Effect Objects
 
-				if (obj.material.name == 'Light Trails') {
-					obj.material = materialConvert(new THREE.MeshBasicMaterial(), obj.material, options.trailColor);
+					if (obj.material.name == 'Ribbon') {
+						obj.material = materialConvert(new THREE.MeshToonMaterial(), obj.material, options.ribbonColor);
+					}
 
-				} else if (obj.material.name == 'Light Particles') {
-					obj.material = materialConvert(new THREE.MeshBasicMaterial(), obj.material, options.trailColor);
+					if (obj.material.name == 'Box Wrapping Top') {
+						obj.material = materialConvert(new THREE.MeshToonMaterial(), obj.material, options.lidColor);
+					}
 
-				} else if (obj.material) { // Only outline objects that are not particle effects
-					outlinedObjects.push(obj)
+					if (obj.material.name == "Box Wrapping") {
+						obj.material = materialConvert(new THREE.MeshToonMaterial(), obj.material, null, loadTexture(options.boxTexture));
+					}
+
+					if (obj.material.name == "Box Inside") {
+						obj.material = materialConvert(new THREE.MeshBasicMaterial(), obj.material, options.insideColor);
+					}
+
+					obj.castShadow = true;
+					obj.receiveShadow = true;
 				}
 			}
 		});
 
-		outlinePass.selectedObjects = outlinedObjects;
-
-		console.log(gltf.scene);
 		mixer = new THREE.AnimationMixer(gltf.scene);
 		const clips = gltf.animations;
 		const clip = THREE.AnimationClip.findByName(clips, 'Animation');
@@ -189,7 +158,6 @@ function init() {
 		}
 
 		scene.add(gltf.scene);
-
 		renderer.setAnimationLoop(animate);
 
 	}, function (xhr) { // Load Progress
@@ -212,9 +180,9 @@ function animate() {
 
 	mixer.update(delta);
 
-	// controls.update();
+	controls.update();
 
-	composer.render(scene, camera);
+	effect.render(scene, camera);
 
 }
 
@@ -227,22 +195,47 @@ function onWindowResize() {
 	camera.updateProjectionMatrix();
 
 	renderer.setSize(windowWidth, windowHeight);
-	composer.setSize(windowWidth, windowHeight);
+	effect.setSize(windowWidth, windowHeight);
 }
 
 /**
- * Returns custom shader material for particles
+ * Converts one material to another and returns the converted material.
  *
- * @param {THREE.Material} original - material to be copied.
- * @param {THREE.Color} color - material to be copied.
- * @param {THREE.Texture} map - material to be copied.
- * @returns {THREE.MeshToonMaterial}
+ * @param {THREE.Material} material - material to convert to.
+ * @param {THREE.Material} original - original material.
+ * @param {THREE.Color} color - new color override.
+ * @param {THREE.Texture} map - new map override.
+ * @returns {THREE.Material}
  */
 function materialConvert(material = new THREE.MeshToonMaterial(), original, color = null, map = null) {
 	material.copy(original);
 
 	if (color) material.color.set(color);
-	if (map) material.color.set(map);
+	if (map) material.map = map;
+
+	material.shadowSide = THREE.FrontSide;
 
 	return material;
+}
+
+/**
+ * Loads texture from given path, sets formatting, and returns texture.
+ *
+ * @param {String} path - path to texture.
+ * @param {THREE.NoColorSpace|THREE.SRGBColorSpace|THREE.LinearSRGBColorSpace} colorSpace - defines texture color space.
+ * @param {THREE.RepeatWrapping|THREE.ClampToEdgeWrapping|THREE.MirroredRepeatWrapping} wrapS - defines how the texture is wrapped in U direction.
+ * @param {THREE.RepeatWrapping|THREE.ClampToEdgeWrapping|THREE.MirroredRepeatWrapping} wrapT - defines how the texture is wrapped in V direction.
+ * @param {Array<Number>} repeat - times the texture is repeated in each direction U and V.
+ * @returns {THREE.Texture}
+ */
+function loadTexture(path, colorSpace = THREE.SRGBColorSpace, wrapS = THREE.RepeatWrapping, wrapT = THREE.RepeatWrapping, repeat = [1, 1]) {
+
+	const texture = new THREE.TextureLoader().load(path);
+	texture.colorSpace = colorSpace;
+	texture.wrapS = wrapS;
+	texture.wrapT = wrapT;
+	texture.repeat.set(...repeat);
+	texture.flipY = false;
+
+	return texture;
 }
