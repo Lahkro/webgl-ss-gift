@@ -19,16 +19,19 @@ import WebGL from "three/addons/capabilities/WebGL.js";
 const options = {
 	// Scene Options
 	backgroundColor: new THREE.Color(0x0A0E10),
+	ambientColor: new THREE.Color('gray'),
 	lightColor: new THREE.Color(0xFFFFFF),
 	lightIntensity: 200,
 	lightPosition: [3.04, 4.213, 4.948],
+	lightShadows: true,
 	cameraPosition: [12.546, 4.350, 6.371],
 	cameraRotation: [-0.534, 1.037, 0.471],
 	cameraFOV: 39.59,
 	cameraPath: './public/models/camera.glb',
 
 	// Model Options
-	presentModelPath: './public/models/present_compressed.glb',
+	presentModelPath: './public/models/present.glb',
+	effectsModelPath: './public/models/effects.glb',
 	outlineColor: new THREE.Color(0x000000),
 	ribbonColor: new THREE.Color(0xFF9C00),
 	lidColor: new THREE.Color(0x13370a),
@@ -38,15 +41,45 @@ const options = {
 	boxTexture: './public/textures/octad_xmas_wrapping_paper.webp',
 }
 
-let windowWidth, windowHeight, windowAspectRatio, scale;
-let clock, scene, renderer, effect, camera, loader, mixer, controls;
+const boxOpeningClips = [ // Clips to play from 'allClips' when clicking to open box
+	'BoxOpen',
+	'TopPhysics',
+	'ExplosionScale',
+	'ExplosionKey',
+	'ChargeEffect'
+]
 
+let windowWidth, windowHeight, windowAspectRatio, scale;
+let clock, scene, renderer, effect, camera, loader, loadingManager;
+let pointer, raycaster, opened;
+let mixer, allClips, initAction, controls;
 
 // Checks for WebGL support
 if (WebGL.isWebGL2Available()) {
 
 	// var stats = new Stats();
 	// document.body.appendChild(stats.dom);
+
+	loadingManager = new THREE.LoadingManager();
+
+	// loadingManager.onStart = function (url, item, total) {
+
+	// }
+
+	const progressBar = document.getElementById('progress-bar');
+	loadingManager.onProgress = function (url, loaded, total) {
+		progressBar.value = (loaded / total) * 100;
+	}
+
+	const progressBarContainer = document.querySelector('.progress-bar-container');
+	loadingManager.onLoad = function () {
+		progressBarContainer.style.display = 'none';
+		initAction.play(); // Play the box dropping animation
+	}
+
+	loadingManager.onError = function (url) {
+		console.error(`Error Loading: ${url}`);
+	}
 
 	init();
 
@@ -72,22 +105,25 @@ function init() {
 	renderer.setSize(windowWidth, windowHeight);
 	renderer.setPixelRatio(window.devicePixelRatio);
 	renderer.shadowMap.enabled = true;
+	renderer.setAnimationLoop(animate);
 	document.body.appendChild(renderer.domElement);
 
 	window.addEventListener('resize', onWindowResize);
+	window.addEventListener('mousemove', onPointerMove);
+	window.addEventListener('pointerup', onPointerUp);
 
 	camera = new THREE.PerspectiveCamera(options.cameraFOV, windowAspectRatio, 0.1, 100);
+	controls = new OrbitControls(camera, renderer.domElement);
 
-	loader = new GLTFLoader();
+	pointer = new THREE.Vector2();
+	raycaster = new THREE.Raycaster();
+	opened = false;
 
 	// Provide a DRACOLoader instance to decode compressed mesh data
 	const dracoLoader = new DRACOLoader();
 	dracoLoader.setDecoderPath('./node_modules/three/examples/jsm/libs/draco/');
 	dracoLoader.preload();
 	loader.setDRACOLoader(dracoLoader);
-
-	// 
-	controls = new OrbitControls(camera, renderer.domElement);
 
 	// Environment, camera, and light settings
 	scene.background = options.backgroundColor;
@@ -96,22 +132,93 @@ function init() {
 	camera.rotation.set(...options.cameraRotation);
 	controls.update();
 
-	const ambientLight = new THREE.AmbientLight(new THREE.Color('gray'));
+	const ambientLight = new THREE.AmbientLight(options.ambientColor);
 	scene.add(ambientLight);
 
 	const light = new THREE.PointLight(options.lightColor, options.lightIntensity, 100);
 	light.position.set(...options.lightPosition);
-	light.castShadow = true;
-	light.shadow.mapSize.width = 2048; // default
-	light.shadow.mapSize.height = 2048; // default
+	light.castShadow = options.lightShadows;
+	light.shadow.mapSize.width = 2048;
+	light.shadow.mapSize.height = 2048;
 	light.shadow.bias = -0.0001;
 	light.shadow.radius = -0.0001;
 	scene.add(light);
 
 	effect = new OutlineEffect(renderer);
 
+	mixer = new THREE.AnimationMixer(scene);
+	allClips = new Array();
+
 	// Import/Load Present GLTF
-	loader.load(options.presentModelPath, function (gltf) {
+	loadModel(options.presentModelPath);
+	loadModel(options.effectsModelPath);
+
+	console.table(options);
+}
+
+function animate() {
+
+	const delta = clock.getDelta();
+
+	mixer.update(delta);
+
+	controls.update();
+
+	effect.render(scene, camera);
+
+}
+
+// Updates scene render size to always fit window
+function onWindowResize() {
+	windowWidth = window.visualViewport.width;
+	windowHeight = window.visualViewport.height;
+
+	camera.aspect = windowWidth / windowHeight;
+	camera.updateProjectionMatrix();
+
+	renderer.setSize(windowWidth, windowHeight);
+	effect.setSize(windowWidth, windowHeight);
+}
+
+function onPointerMove(event) {
+
+	pointer.x = (event.clientX / window.innerWidth) * 2 - 1;
+	pointer.y = - (event.clientY / window.innerHeight) * 2 + 1;
+
+	checkIntersection();
+}
+
+function onPointerUp(event) {
+	checkIntersection(true);
+}
+
+function checkIntersection(clicked = false) {
+
+	raycaster.setFromCamera(pointer, camera);
+
+	const intersects = raycaster.intersectObject(scene, true);
+
+	// If pointer is over the box
+	if (intersects.length > 0 && (intersects[0].object.parent.name == 'Present_Box' || 'Present_Top')) {
+
+		const selectedObject = intersects[0].object;
+
+		// If pointer has clicked & wasn't already opened
+		if (clicked && !opened) {
+			opened = true;
+			playSelectedClips(allClips, boxOpeningClips);
+		}
+
+	} else {
+
+		// Do some effect to indicate hovering over box
+
+	}
+
+}
+
+function loadModel(modelPath) {
+	loader.load(modelPath, function (gltf) {
 
 		// Traverse model for overrides
 		gltf.scene.traverse((obj) => {
@@ -147,18 +254,17 @@ function init() {
 			}
 		});
 
-		mixer = new THREE.AnimationMixer(gltf.scene);
-		const clips = gltf.animations;
-		const clip = THREE.AnimationClip.findByName(clips, 'Animation');
+		allClips.push(...gltf.animations);
+
+		// Setup box dropping animation to play after scene initially loads
+		const clip = THREE.AnimationClip.findByName(allClips, 'BoxDrop');
 		if (clip) {
-			const action = mixer.clipAction(clip);
-			// action.clampWhenFinished = true;
-			// action.setLoop(THREE.LoopOnce);
-			action.stop().play();
+			initAction = mixer.clipAction(clip);
+			initAction.clampWhenFinished = true;
+			initAction.setLoop(THREE.LoopOnce);
 		}
 
 		scene.add(gltf.scene);
-		renderer.setAnimationLoop(animate);
 
 	}, function (xhr) { // Load Progress
 
@@ -166,36 +272,32 @@ function init() {
 
 	}, function (error) { // Load Error
 
-		console.log('Error', error);
+		console.error('Error', error);
 
 	}
 	);
-
-	console.table(options);
 }
 
-function animate() {
+/**
+ * Loads texture from given path, sets formatting, and returns texture.
+ *
+ * @param {String} path - path to texture.
+ * @param {THREE.NoColorSpace|THREE.SRGBColorSpace|THREE.LinearSRGBColorSpace} colorSpace - defines texture color space.
+ * @param {THREE.RepeatWrapping|THREE.ClampToEdgeWrapping|THREE.MirroredRepeatWrapping} wrapS - defines how the texture is wrapped in U direction.
+ * @param {THREE.RepeatWrapping|THREE.ClampToEdgeWrapping|THREE.MirroredRepeatWrapping} wrapT - defines how the texture is wrapped in V direction.
+ * @param {Array<Number>} repeat - times the texture is repeated in each direction U and V.
+ * @returns {THREE.Texture}
+ */
+function loadTexture(path, colorSpace = THREE.SRGBColorSpace, wrapS = THREE.RepeatWrapping, wrapT = THREE.RepeatWrapping, repeat = [1, 1]) {
 
-	const delta = clock.getDelta();
+	const texture = new THREE.TextureLoader(loadingManager).load(path);
+	texture.colorSpace = colorSpace;
+	texture.wrapS = wrapS;
+	texture.wrapT = wrapT;
+	texture.repeat.set(...repeat);
+	texture.flipY = false;
 
-	mixer.update(delta);
-
-	controls.update();
-
-	effect.render(scene, camera);
-
-}
-
-// Updates scene render size to always fit window
-function onWindowResize() {
-	windowWidth = window.visualViewport.width;
-	windowHeight = window.visualViewport.height;
-
-	camera.aspect = windowWidth / windowHeight;
-	camera.updateProjectionMatrix();
-
-	renderer.setSize(windowWidth, windowHeight);
-	effect.setSize(windowWidth, windowHeight);
+	return texture;
 }
 
 /**
@@ -219,23 +321,20 @@ function materialConvert(material = new THREE.MeshToonMaterial(), original, colo
 }
 
 /**
- * Loads texture from given path, sets formatting, and returns texture.
+ * Plays selected clips
  *
- * @param {String} path - path to texture.
- * @param {THREE.NoColorSpace|THREE.SRGBColorSpace|THREE.LinearSRGBColorSpace} colorSpace - defines texture color space.
- * @param {THREE.RepeatWrapping|THREE.ClampToEdgeWrapping|THREE.MirroredRepeatWrapping} wrapS - defines how the texture is wrapped in U direction.
- * @param {THREE.RepeatWrapping|THREE.ClampToEdgeWrapping|THREE.MirroredRepeatWrapping} wrapT - defines how the texture is wrapped in V direction.
- * @param {Array<Number>} repeat - times the texture is repeated in each direction U and V.
- * @returns {THREE.Texture}
+ * @param {Array<THREE.AnimationClip>} clips - material to convert to.
+ * @param {Array<string>} selection - original material.
  */
-function loadTexture(path, colorSpace = THREE.SRGBColorSpace, wrapS = THREE.RepeatWrapping, wrapT = THREE.RepeatWrapping, repeat = [1, 1]) {
-
-	const texture = new THREE.TextureLoader().load(path);
-	texture.colorSpace = colorSpace;
-	texture.wrapS = wrapS;
-	texture.wrapT = wrapT;
-	texture.repeat.set(...repeat);
-	texture.flipY = false;
-
-	return texture;
+function playSelectedClips(clips, selection) {
+	clips.forEach(clip => { // Play all of the clips defined in selection for box opening
+		if (selection.some(name => clip.name.includes(name))) {
+			THREE.AnimationUtils.makeClipAdditive(clip);
+			const action = mixer.clipAction(clip);
+			action.blendMode = THREE.AdditiveAnimationBlendMode;
+			action.clampWhenFinished = true;
+			action.setLoop(THREE.LoopOnce);
+			action.play();
+		}
+	});
 }
