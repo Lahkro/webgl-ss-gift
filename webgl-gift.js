@@ -120,7 +120,8 @@ function init() {
 	opened = false;
 
 	// Provide a DRACOLoader instance to decode compressed mesh data
-	const dracoLoader = new DRACOLoader();
+	loader = new GLTFLoader(loadingManager);
+	const dracoLoader = new DRACOLoader(loadingManager);
 	dracoLoader.setDecoderPath('./node_modules/three/examples/jsm/libs/draco/');
 	dracoLoader.preload();
 	loader.setDRACOLoader(dracoLoader);
@@ -338,3 +339,4 @@ function playSelectedClips(clips, selection) {
 		}
 	});
 }
+
