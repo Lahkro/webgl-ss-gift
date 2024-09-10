@@ -9,10 +9,22 @@
  */
 
 import * as THREE from 'three';
+
 import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js'
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
 import { OutlineEffect } from 'three/addons/effects/OutlineEffect.js';
+
+import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+import { Pass } from 'three/addons/postprocessing/Pass.js';
+import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+import { OutlinePass } from 'three/addons/postprocessing/OutlinePass.js';
+import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
+import { SMAAPass } from 'three/addons/postprocessing/SMAAPass.js';
+import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+
 import WebGL from "three/addons/capabilities/WebGL.js";
 
 // SCENE & MODEL OPTIONS //
@@ -39,6 +51,15 @@ const options = {
 	insideColor: new THREE.Color(0xFFFFFF),
 	effectColor: new THREE.Color(0xFFC94A),
 	boxTexture: './public/textures/octad_xmas_wrapping_paper.webp',
+
+	// Post Processing Options
+	highlightColor: new THREE.Color('white'),
+	bloomParams: {
+		threshold: 0.7,
+		strength: 0.15,
+		radius: 0,
+		exposure: 1
+	},
 }
 
 const boxOpeningClips = [ // Clips to play from 'allClips' when clicking to open box
@@ -53,6 +74,7 @@ let windowWidth, windowHeight, windowAspectRatio, scale;
 let clock, scene, renderer, effect, camera, loader, loadingManager;
 let pointer, raycaster, opened;
 let mixer, allClips, initAction, controls;
+let composer, outlinePass, outlinedObjects;
 
 // Checks for WebGL support
 if (WebGL.isWebGL2Available()) {
@@ -61,10 +83,6 @@ if (WebGL.isWebGL2Available()) {
 	// document.body.appendChild(stats.dom);
 
 	loadingManager = new THREE.LoadingManager();
-
-	// loadingManager.onStart = function (url, item, total) {
-
-	// }
 
 	const progressBar = document.getElementById('progress-bar');
 	loadingManager.onProgress = function (url, loaded, total) {
@@ -98,10 +116,7 @@ function init() {
 	windowAspectRatio = windowWidth / windowHeight
 	scale = windowHeight;
 
-	clock = new THREE.Clock();
-	scene = new THREE.Scene();
-
-	renderer = new THREE.WebGLRenderer({ antialias: true });
+	renderer = new THREE.WebGLRenderer();
 	renderer.setSize(windowWidth, windowHeight);
 	renderer.setPixelRatio(window.devicePixelRatio);
 	renderer.shadowMap.enabled = true;
@@ -113,25 +128,34 @@ function init() {
 	window.addEventListener('pointerup', onPointerUp);
 
 	camera = new THREE.PerspectiveCamera(options.cameraFOV, windowAspectRatio, 0.1, 100);
+	camera.position.set(...options.cameraPosition);
+	camera.rotation.set(...options.cameraRotation);
+	camera.layers.enable(0); // enabled by default
+	camera.layers.enable(1);
+
 	controls = new OrbitControls(camera, renderer.domElement);
+	controls.update();
+
+	clock = new THREE.Clock();
 
 	pointer = new THREE.Vector2();
 	raycaster = new THREE.Raycaster();
 	opened = false;
 
-	// Provide a DRACOLoader instance to decode compressed mesh data
+	// Use DRACOLoader to decode compressed mesh data
 	loader = new GLTFLoader(loadingManager);
 	const dracoLoader = new DRACOLoader(loadingManager);
 	dracoLoader.setDecoderPath('/node_modules/three/examples/jsm/libs/draco/');
 	dracoLoader.preload();
 	loader.setDRACOLoader(dracoLoader);
 
-	// Environment, camera, and light settings
-	scene.background = options.backgroundColor;
+	// Scene setup
+	scene = new THREE.Scene();
+	mixer = new THREE.AnimationMixer(scene);
 
-	camera.position.set(...options.cameraPosition);
-	camera.rotation.set(...options.cameraRotation);
-	controls.update();
+	allClips = new Array();
+
+	scene.background = options.backgroundColor;
 
 	const ambientLight = new THREE.AmbientLight(options.ambientColor);
 	scene.add(ambientLight);
@@ -145,16 +169,49 @@ function init() {
 	light.shadow.radius = -0.0001;
 	scene.add(light);
 
-	effect = new OutlineEffect(renderer);
-
-	mixer = new THREE.AnimationMixer(scene);
-	allClips = new Array();
-
-	// Import/Load Present GLTF
+	// Import/Load GLTF models
 	loadModel(options.presentModelPath);
 	loadModel(options.effectsModelPath);
 
-	console.table(options);
+	// Configure Post Processing
+	effect = new OutlineEffect(renderer, { defaultThickness: 0.005 });
+
+	// OutlinePass setup
+	class OutlineEffectRenderPass extends RenderPass { // Extends RenderPass to override render method to use OutlineEffect's renderer.
+		constructor(effect, scene, camera, overrideMaterial = null, clearColor = null, clearAlpha = null) {
+			super(scene, camera, overrideMaterial, clearColor, clearAlpha);
+			this.effect = effect;
+		}
+
+		render(renderer, writeBuffer, readBuffer /*, deltaTime, maskActive */) {
+			super.render(this.effect, writeBuffer, readBuffer);
+		}
+	}
+
+	composer = new EffectComposer(renderer);
+	composer.addPass(new OutlineEffectRenderPass(effect, scene, camera));
+
+	outlinePass = new OutlinePass(new THREE.Vector2(windowWidth, windowHeight), scene, camera);
+	outlinedObjects = new Array();
+	outlinePass.visibleEdgeColor.set(options.highlightColor);
+	composer.addPass(outlinePass);
+
+	const bloomPass = new UnrealBloomPass(
+		new THREE.Vector2(window.innerWidth, window.innerHeight),
+		options.bloomParams.strength,
+		options.bloomParams.radius,
+		options.bloomParams.threshold
+	);
+
+	composer.addPass(bloomPass);
+
+	const smaaPass = new SMAAPass(windowWidth * renderer.getPixelRatio(), windowHeight * renderer.getPixelRatio());
+	composer.addPass(smaaPass);
+
+	const outputPass = new OutputPass();
+	composer.addPass(outputPass);
+
+	// console.table(options);
 }
 
 function animate() {
@@ -165,7 +222,8 @@ function animate() {
 
 	controls.update();
 
-	effect.render(scene, camera);
+	// effect.render(scene, camera);
+	composer.render(scene, camera);
 
 }
 
@@ -202,17 +260,19 @@ function checkIntersection(clicked = false) {
 	// If pointer is over the box
 	if (intersects.length > 0 && (intersects[0].object.parent.name == 'Present_Box' || 'Present_Top')) {
 
-		const selectedObject = intersects[0].object;
+		// const selectedObject = intersects[0].object;
+		outlinePass.selectedObjects = outlinedObjects;
 
 		// If pointer has clicked & wasn't already opened
 		if (clicked && !opened) {
 			opened = true;
 			playSelectedClips(allClips, boxOpeningClips);
+			outlinedObjects = [];
 		}
 
 	} else {
 
-		// Do some effect to indicate hovering over box
+		outlinePass.selectedObjects = [];
 
 	}
 
@@ -232,6 +292,8 @@ function loadModel(modelPath) {
 					obj.material.side = THREE.DoubleSide;
 
 				} else { // Non Effect Objects
+
+					outlinedObjects.push(obj);
 
 					if (obj.material.name == 'Ribbon') {
 						obj.material = materialConvert(new THREE.MeshToonMaterial(), obj.material, options.ribbonColor);
@@ -289,7 +351,7 @@ function loadModel(modelPath) {
  * @param {Array<Number>} repeat - times the texture is repeated in each direction U and V.
  * @returns {THREE.Texture}
  */
-function loadTexture(path, colorSpace = THREE.SRGBColorSpace, wrapS = THREE.RepeatWrapping, wrapT = THREE.RepeatWrapping, repeat = [1, 1]) {
+function loadTexture(path, colorSpace = THREE.SRGBColorSpace, wrapS = THREE.RepeatWrapping, wrapT = THREE.RepeatWrapping, repeat = [3, 3]) {
 
 	const texture = new THREE.TextureLoader(loadingManager).load(path);
 	texture.colorSpace = colorSpace;
