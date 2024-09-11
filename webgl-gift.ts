@@ -38,18 +38,17 @@ const options = {
 	cameraPosition: [12.546, 4.350, 6.371] as [number, number, number],
 	cameraRotation: [-0.534, 1.037, 0.471] as [number, number, number],
 	cameraFOV: 39.59,
-	cameraPath: './public/models/camera.glb',
 
 	// Model Options
-	presentModelPath: '/models/present.glb',
-	effectsModelPath: '/models/effects.glb',
+	presentModelPath: './models/present.glb',
+	effectsModelPath: './models/effects.glb',
 	outlineColor: new THREE.Color(0x000000),
 	ribbonColor: new THREE.Color(0xFF9C00),
 	lidColor: new THREE.Color(0x13370a),
 	boxColor: new THREE.Color(0x0D2207),
 	insideColor: new THREE.Color(0xFFFFFF),
 	effectColor: new THREE.Color(0xFFC94A),
-	boxTexture: '/textures/octad_xmas_wrapping_paper.webp',
+	boxTexture: './textures/octad_xmas_wrapping_paper.webp',
 
 	// Post Processing Options
 	highlightColor: new THREE.Color('white'),
@@ -153,12 +152,13 @@ function init() {
 	raycaster = new THREE.Raycaster();
 	opened = false;
 
-	// Use DRACOLoader to decode compressed mesh data
+
 	loader = new GLTFLoader(loadingManager);
-	const dracoLoader = new DRACOLoader(loadingManager);
-	dracoLoader.setDecoderPath('/node_modules/three/examples/jsm/libs/draco/');
-	dracoLoader.preload();
-	loader.setDRACOLoader(dracoLoader);
+	// Use DRACOLoader to decode compressed mesh data <=== [REMOVED CUS ANNOYING]
+	// const dracoLoader = new DRACOLoader(loadingManager);
+	// dracoLoader.setDecoderPath('./node_modules/three/examples/jsm/libs/draco/');
+	// dracoLoader.preload();
+	// loader.setDRACOLoader(dracoLoader);
 
 	// Scene setup
 	clock = new THREE.Clock();

@@ -38,9 +38,7 @@ jobs:
       - name: Install dependencies
         run: npm ci
       - name: Build
-        env: 
-          VITE_BASE_PATH: /webgl-ss-gift/
-        run: npm run build
+        run: npm run build -- --base=/webgl-ss-gift/
       - name: Setup Pages
         uses: actions/configure-pages@v4
       - name: Upload artifact
