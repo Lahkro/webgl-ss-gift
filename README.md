@@ -9,6 +9,15 @@ Created by Lahkro for use in [tadmozeltov's](https://git.tadmozeltov.com/tadmoze
 
 ## Requirements
 [``three.js``](https://threejs.org/) (r168) WebGL library
+
+[``@types/three``](https://github.com/DefinitelyTyped/DefinitelyTyped) DefinitelyTyped TypeScript definitions for three.js
+
+[``Vite``](https://vitejs.dev/) local development server
 ```
 npm install
+```
+
+## Run
+```
+npx vite
 ```
