@@ -67,13 +67,24 @@ const boxOpeningClips = [ // Clips to play from 'allClips' when clicking to open
 	'ExplosionScale',
 	'ExplosionKey',
 	'ChargeEffect'
-]
+];
 
+// Window Sizes
 let windowWidth: number, windowHeight: number, windowAspectRatio: number, scale: number;
-let clock: THREE.Clock, scene: THREE.Scene, renderer: THREE.WebGLRenderer, camera: THREE.PerspectiveCamera;
-let loader: GLTFLoader, loadingManager: THREE.LoadingManager;
+
+// Rendering
+let scene: THREE.Scene, renderer: THREE.WebGLRenderer, camera: THREE.PerspectiveCamera, controls: OrbitControls;
+
+// Mouse Pointer & Raycaster
 let pointer: THREE.Vector2, raycaster: THREE.Raycaster, opened: boolean;
-let mixer: THREE.AnimationMixer, allClips: THREE.AnimationClip[], initAction: THREE.AnimationAction, controls: OrbitControls;
+
+// Loaders
+let loader: GLTFLoader, loadingManager: THREE.LoadingManager;
+
+// Animations
+let clock: THREE.Clock, mixer: THREE.AnimationMixer, allClips: THREE.AnimationClip[], initAction: THREE.AnimationAction;
+
+// Effects & Post Processing
 let effect: OutlineEffect, composer: EffectComposer, outlinePass: OutlinePass, outlinedObjects: THREE.Object3D[];
 
 // Checks for WebGL support
@@ -127,6 +138,8 @@ function init() {
 	window.addEventListener('mousemove', onPointerMove);
 	window.addEventListener('pointerup', onPointerUp);
 
+	scene = new THREE.Scene();
+
 	camera = new THREE.PerspectiveCamera(options.cameraFOV, windowAspectRatio, 0.1, 100);
 	camera.position.set(...options.cameraPosition);
 	camera.rotation.set(...options.cameraRotation);
@@ -135,8 +148,6 @@ function init() {
 
 	controls = new OrbitControls(camera, renderer.domElement);
 	controls.update();
-
-	clock = new THREE.Clock();
 
 	pointer = new THREE.Vector2();
 	raycaster = new THREE.Raycaster();
@@ -150,7 +161,7 @@ function init() {
 	loader.setDRACOLoader(dracoLoader);
 
 	// Scene setup
-	scene = new THREE.Scene();
+	clock = new THREE.Clock();
 	mixer = new THREE.AnimationMixer(scene);
 
 	allClips = new Array();
@@ -181,7 +192,14 @@ function init() {
 	// A workaround to use both OutlineEffect and PostProcessing together.
 	class OutlineEffectRenderPass extends RenderPass {
 		effect: OutlineEffect;
-		constructor(effect: OutlineEffect, scene: THREE.Scene, camera: THREE.Camera, overrideMaterial = null, clearColor = null, clearAlpha = null) {
+		constructor(
+			effect: OutlineEffect,
+			scene: THREE.Scene,
+			camera: THREE.Camera,
+			overrideMaterial = null,
+			clearColor = null,
+			clearAlpha = null
+		) {
 			super(scene, camera, overrideMaterial, clearColor, clearAlpha);
 			this.effect = effect;
 		}
@@ -352,10 +370,16 @@ function loadModel(modelPath: string) {
  * @param {THREE.ColorSpace} colorSpace - defines texture color space.
  * @param {THREE.Wrapping} wrapS - defines how the texture is wrapped in U direction.
  * @param {THREE.Wrapping} wrapT - defines how the texture is wrapped in V direction.
- * @param {Array<Number>} repeat - times the texture is repeated in each direction U and V.
+ * @param {[number, number]} repeat - times the texture is repeated in each direction U and V.
  * @returns {THREE.Texture}
  */
-function loadTexture(path: string, colorSpace: THREE.ColorSpace = THREE.SRGBColorSpace, wrapS: THREE.Wrapping = THREE.RepeatWrapping, wrapT: THREE.Wrapping = THREE.RepeatWrapping, repeat: [number, number] = [3, 3]) {
+function loadTexture(
+	path: string,
+	colorSpace: THREE.ColorSpace = THREE.SRGBColorSpace,
+	wrapS: THREE.Wrapping = THREE.RepeatWrapping,
+	wrapT: THREE.Wrapping = THREE.RepeatWrapping,
+	repeat: [number, number] = [3, 3]
+): THREE.Texture {
 
 	const texture = new THREE.TextureLoader(loadingManager).load(path);
 	texture.colorSpace = colorSpace;
@@ -376,7 +400,12 @@ function loadTexture(path: string, colorSpace: THREE.ColorSpace = THREE.SRGBColo
  * @param {THREE.Texture} map - new map override.
  * @returns {THREE.Material}
  */
-function materialConvert(material: any = new THREE.MeshToonMaterial(), original: THREE.Material, color: THREE.Color | null = null, map: THREE.Texture | null = null): THREE.Material {
+function materialConvert(
+	material: any = new THREE.MeshToonMaterial(),
+	original: THREE.Material,
+	color: THREE.Color | null = null,
+	map: THREE.Texture | null = null
+): THREE.Material {
 	material.copy(original);
 
 	if (color) material.color.set(color);
