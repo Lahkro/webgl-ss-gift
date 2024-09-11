@@ -21,3 +21,8 @@ npm install
 ```
 npx vite
 ```
+
+## Build
+```
+npm run build
+```

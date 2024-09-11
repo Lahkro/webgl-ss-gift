@@ -1,0 +1,29 @@
+body {
+    margin: 0;
+    background-color: #0A0E10;
+}
+
+.progress-bar-container {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    transform: translate(-50%, -50%);
+    width: 100%;
+    height: 100%;
+    background-color: #0a0e10;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+}
+
+#progress-bar {
+    width: 30%;
+    margin-top: 0.5%;
+    height: 2%;
+}
+
+label {
+    color: white;
+    font-size: 2rem;
+}
