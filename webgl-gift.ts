@@ -26,6 +26,11 @@ import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js'
 
 import WebGL from "three/addons/capabilities/WebGL.js";
 
+const santee = {
+	name: 'tadmozeltov',
+	image: 'https://static-cdn.jtvnw.net/jtv_user_pictures/aa331098-796c-44a0-bad3-c72940c6181c-profile_image-70x70.png',
+}
+
 // SCENE & MODEL OPTIONS //
 const options = {
 	// Scene Options
@@ -49,6 +54,7 @@ const options = {
 	insideColor: new THREE.Color(0xFFFFFF),
 	effectColor: new THREE.Color(0xFFC94A),
 	boxTexture: './textures/octad_xmas_wrapping_paper.webp',
+	floorTexture: './textures/floor.webp',
 
 	// Post Processing Options
 	highlightColor: new THREE.Color('white'),
@@ -69,7 +75,7 @@ const boxOpeningClips = [ // Clips to play from 'allClips' when clicking to open
 ];
 
 // Window Sizes
-let windowWidth: number, windowHeight: number, windowAspectRatio: number, scale: number;
+let containerWidth: number, containerHeight: number, windowAspectRatio: number, container: HTMLElement;
 
 // Rendering
 let scene: THREE.Scene, renderer: THREE.WebGLRenderer, camera: THREE.PerspectiveCamera, controls: OrbitControls;
@@ -94,12 +100,12 @@ if (WebGL.isWebGL2Available()) {
 
 	loadingManager = new THREE.LoadingManager();
 
-	const progressBar = document.getElementById('progress-bar') as HTMLProgressElement;
+	const progressBar = document.getElementById('progress-bar')! as HTMLProgressElement;
 	loadingManager.onProgress = function (_url, loaded, total) {
 		progressBar.value = (loaded / total) * 100;
 	}
 
-	const progressBarContainer = document.querySelector('.progress-bar-container') as HTMLProgressElement;
+	const progressBarContainer: HTMLElement = document.querySelector('.progress-bar-container')!;
 	loadingManager.onLoad = function () {
 		progressBarContainer.style.display = 'none';
 		initAction.play(); // Play the box dropping animation
@@ -121,17 +127,17 @@ if (WebGL.isWebGL2Available()) {
 // Setup renderer & scene objects
 function init() {
 
-	windowWidth = window.visualViewport!.width;
-	windowHeight = window.visualViewport!.height;
-	windowAspectRatio = windowWidth / windowHeight
-	scale = windowHeight;
+	container = document.getElementById('three-container')!;
+	containerWidth = container.clientWidth;
+	containerHeight = container.clientHeight;
+	windowAspectRatio = containerWidth / containerHeight;
 
 	renderer = new THREE.WebGLRenderer();
-	renderer.setSize(windowWidth, windowHeight);
+	renderer.setSize(containerWidth, containerHeight);
 	renderer.setPixelRatio(window.devicePixelRatio);
 	renderer.shadowMap.enabled = true;
 	renderer.setAnimationLoop(animate);
-	document.body.appendChild(renderer.domElement);
+	container.appendChild(renderer.domElement);
 
 	window.addEventListener('resize', onWindowResize);
 	window.addEventListener('mousemove', onPointerMove);
@@ -145,13 +151,12 @@ function init() {
 	camera.layers.enable(0); // enabled by default
 	camera.layers.enable(1);
 
-	controls = new OrbitControls(camera, renderer.domElement);
-	controls.update();
+	// controls = new OrbitControls(camera, renderer.domElement);
+	// controls.update();
 
 	pointer = new THREE.Vector2();
 	raycaster = new THREE.Raycaster();
 	opened = false;
-
 
 	loader = new GLTFLoader(loadingManager);
 	// Use DRACOLoader to decode compressed mesh data <=== [REMOVED CUS ANNOYING]
@@ -186,6 +191,8 @@ function init() {
 
 	// Configure Post Processing
 	effect = new OutlineEffect(renderer, { defaultThickness: 0.005 });
+	effect.setSize(containerWidth, containerHeight);
+	effect.setPixelRatio(window.devicePixelRatio);
 
 	// OutlinePass setup
 	// Extends RenderPass to override render method to use OutlineEffect's renderer.
@@ -210,11 +217,14 @@ function init() {
 	}
 
 	composer = new EffectComposer(renderer);
+	composer.setSize(containerWidth, containerHeight);
+	composer.setPixelRatio(window.devicePixelRatio);
 	composer.addPass(new OutlineEffectRenderPass(effect, scene, camera));
 
-	outlinePass = new OutlinePass(new THREE.Vector2(windowWidth, windowHeight), scene, camera);
+	outlinePass = new OutlinePass(new THREE.Vector2(containerWidth, containerHeight), scene, camera);
 	outlinedObjects = new Array();
 	outlinePass.visibleEdgeColor.set(options.highlightColor);
+	outlinePass.hiddenEdgeColor.set(options.highlightColor);
 	composer.addPass(outlinePass);
 
 	const bloomPass = new UnrealBloomPass(
@@ -223,10 +233,9 @@ function init() {
 		options.bloomParams.radius,
 		options.bloomParams.threshold
 	);
-
 	composer.addPass(bloomPass);
 
-	const smaaPass = new SMAAPass(windowWidth * renderer.getPixelRatio(), windowHeight * renderer.getPixelRatio());
+	const smaaPass = new SMAAPass(containerWidth * renderer.getPixelRatio(), containerHeight * renderer.getPixelRatio());
 	composer.addPass(smaaPass);
 
 	const outputPass = new OutputPass();
@@ -241,30 +250,32 @@ function animate() {
 
 	mixer.update(delta);
 
-	controls.update();
+	// controls.update();
 
-	// effect.render(scene, camera);
-	// composer.render(scene, camera);
 	composer.render();
-
 }
 
 // Updates scene render size to always fit window
 function onWindowResize() {
-	windowWidth = window.visualViewport!.width;
-	windowHeight = window.visualViewport!.height;
+	containerWidth = container.clientWidth;
+	containerHeight = container.clientHeight;
 
-	camera.aspect = windowWidth / windowHeight;
+	camera.aspect = containerWidth / containerHeight;
 	camera.updateProjectionMatrix();
 
-	renderer.setSize(windowWidth, windowHeight);
-	effect.setSize(windowWidth, windowHeight);
+	renderer.setSize(containerWidth, containerHeight);
+	effect.setSize(containerWidth, containerHeight);
+	composer.setSize(containerWidth, containerHeight);
 }
 
 function onPointerMove(event: { clientX: number; clientY: number; }) {
 
-	pointer.x = (event.clientX / window.innerWidth) * 2 - 1;
-	pointer.y = - (event.clientY / window.innerHeight) * 2 + 1;
+	// Get the bounding box of the container to...
+	const rect = container.getBoundingClientRect();
+
+	// ... calculate mouse position relative to container
+	pointer.x = ((event.clientX - rect.left) / containerWidth) * 2 - 1;
+	pointer.y = - ((event.clientY - rect.top) / containerHeight) * 2 + 1;
 
 	checkIntersection();
 }
@@ -280,13 +291,19 @@ function checkIntersection(clicked = false) {
 	const intersects = raycaster.intersectObject(scene, true);
 
 	// If pointer is over the box
-	if (intersects.length > 0 && (intersects[0].object.parent?.name == 'Present_Box' || 'Present_Top')) {
+	if (intersects.length > 0 &&
+		(
+			intersects[0].object.parent?.name == 'Present_Box' ||
+			intersects[0].object.parent?.name == 'Present_Top'
+		)) {
 
 		// const selectedObject = intersects[0].object;
 		outlinePass.selectedObjects = outlinedObjects;
 
 		// If pointer has clicked & wasn't already opened
 		if (clicked && !opened) {
+			const info = document.getElementById('info')!;
+			info.style.display = 'none';
 			opened = true;
 			playSelectedClips(allClips, boxOpeningClips);
 			outlinedObjects = [];
@@ -306,35 +323,40 @@ function loadModel(modelPath: string) {
 		// Traverse model for overrides
 		gltf.scene.traverse((obj) => {
 
-			// Override Materials with Toon Shading
+			// Override Materials with three.js Toon or Basic Materials
 			if (obj instanceof THREE.Mesh && obj.material) {
 
-				if (obj.material.name == 'Effect') { // Effect or particle objects
-					obj.material = materialConvert(new THREE.MeshBasicMaterial(), obj.material, options.effectColor);
-					obj.material.side = THREE.DoubleSide;
-
-				} else { // Non Effect Objects
-
-					outlinedObjects.push(obj);
-
-					if (obj.material.name == 'Ribbon') {
+				switch (obj.material.name) {
+					case 'Effect':
+						obj.material = materialConvert(new THREE.MeshBasicMaterial(), obj.material, options.effectColor);
+						obj.material.transparent = true;
+						obj.material.opacity = 0.7;
+						obj.material.side = THREE.DoubleSide;
+						break;
+					case 'Ribbon':
 						obj.material = materialConvert(new THREE.MeshToonMaterial(), obj.material, options.ribbonColor);
-					}
-
-					if (obj.material.name == 'Box Wrapping Top') {
+						outlineAndShadow(obj);
+						break;
+					case 'Box Wrapping Top':
 						obj.material = materialConvert(new THREE.MeshToonMaterial(), obj.material, options.lidColor);
-					}
-
-					if (obj.material.name == "Box Wrapping") {
+						outlineAndShadow(obj);
+						break;
+					case 'Box Wrapping':
 						obj.material = materialConvert(new THREE.MeshToonMaterial(), obj.material, null, loadTexture(options.boxTexture));
-					}
-
-					if (obj.material.name == "Box Inside") {
+						outlineAndShadow(obj);
+						break;
+					case 'Box Inside':
 						obj.material = materialConvert(new THREE.MeshBasicMaterial(), obj.material, options.insideColor);
-					}
-
-					obj.castShadow = true;
-					obj.receiveShadow = true;
+						outlineAndShadow(obj);
+						break;
+					case 'Floor':
+						const texture = loadTexture(options.floorTexture, [1, 1]);
+						texture.premultiplyAlpha = true;
+						obj.material = materialConvert(new THREE.MeshToonMaterial(), obj.material, null, texture);
+						obj.material.transparent = true;
+						obj.material.opacity = 0.9;
+						obj.receiveShadow = true;
+						break;
 				}
 			}
 		});
@@ -375,17 +397,18 @@ function loadModel(modelPath: string) {
  */
 function loadTexture(
 	path: string,
-	colorSpace: THREE.ColorSpace = THREE.SRGBColorSpace,
+	repeat: [number, number] = [3, 3],
 	wrapS: THREE.Wrapping = THREE.RepeatWrapping,
 	wrapT: THREE.Wrapping = THREE.RepeatWrapping,
-	repeat: [number, number] = [3, 3]
+	colorSpace: THREE.ColorSpace = THREE.SRGBColorSpace
+
 ): THREE.Texture {
 
 	const texture = new THREE.TextureLoader(loadingManager).load(path);
-	texture.colorSpace = colorSpace;
+	texture.repeat.set(...repeat);
 	texture.wrapS = wrapS;
 	texture.wrapT = wrapT;
-	texture.repeat.set(...repeat);
+	texture.colorSpace = colorSpace;
 	texture.flipY = false;
 
 	return texture;
@@ -433,4 +456,10 @@ function playSelectedClips(clips: Array<THREE.AnimationClip>, selection: Array<s
 			action.play();
 		}
 	});
+}
+
+function outlineAndShadow(obj: THREE.Object3D) {
+	outlinedObjects.push(obj);
+	obj.castShadow = true;
+	obj.receiveShadow = true;
 }

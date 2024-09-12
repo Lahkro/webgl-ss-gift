@@ -8,11 +8,13 @@ Once Secret Santa is assigned, users will be prompted to view their santee. This
 Created by Lahkro for use in [tadmozeltov's](https://git.tadmozeltov.com/tadmozeltov/secret-santa) [Secret Santa "Meowmas" web application](https://santa.tadmozeltov.com/).
 
 ## Requirements
+[``Node.js``](https://nodejs.org/)
+
 [``three.js``](https://threejs.org/) (r168) WebGL library
 
 [``@types/three``](https://github.com/DefinitelyTyped/DefinitelyTyped) DefinitelyTyped TypeScript definitions for three.js
 
-[``Vite``](https://vitejs.dev/) local development server
+[``Vite``](https://vitejs.dev/) development server and build command
 ```
 npm install
 ```
@@ -22,7 +24,8 @@ npm install
 npx vite
 ```
 
-## Build
+## Build & Run
 ```
 npm run build
+npm run preview
 ```
