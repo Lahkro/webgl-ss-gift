@@ -10,13 +10,14 @@
 
 import * as THREE from 'three';
 
+// Loaders
 import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js'
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 
+// Controls (only used for development)
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 
-import { OutlineEffect } from 'three/addons/effects/OutlineEffect.js';
-
+// Post Processing
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { OutlinePass } from 'three/addons/postprocessing/OutlinePass.js';
@@ -26,8 +27,10 @@ import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js'
 
 import WebGL from "three/addons/capabilities/WebGL.js";
 
+import { Text } from 'troika-three-text';
+
 const santee = {
-	name: 'tadmozeltov',
+	name: 'Tad Mozeltov',
 	image: 'https://static-cdn.jtvnw.net/jtv_user_pictures/aa331098-796c-44a0-bad3-c72940c6181c-profile_image-70x70.png',
 }
 
@@ -38,10 +41,10 @@ const options = {
 	ambientColor: new THREE.Color('gray'),
 	lightColor: new THREE.Color(0xFFFFFF),
 	lightIntensity: 200,
-	lightPosition: [3.04, 4.213, 4.948] as [number, number, number],
+	lightPosition: new THREE.Vector3(3.04, 4.213, 4.948).toArray(),
 	lightShadows: true,
-	cameraPosition: [12.546, 4.350, 6.371] as [number, number, number],
-	cameraRotation: [-0.534, 1.037, 0.471] as [number, number, number],
+	cameraPosition: new THREE.Vector3(12.546, 4.350, 6.371).toArray(),
+	cameraRotation: new THREE.Vector3(-0.534, 1.037, 0.471).toArray(),
 	cameraFOV: 39.59,
 
 	// Model Options
@@ -53,8 +56,17 @@ const options = {
 	boxColor: new THREE.Color(0x0D2207),
 	insideColor: new THREE.Color(0xFFFFFF),
 	effectColor: new THREE.Color(0xFFC94A),
-	boxTexture: './textures/octad_xmas_wrapping_paper.webp',
+	beamColor: new THREE.Color(0xFFC94A),
+	boxTexture: './textures/wrap.webp',
 	floorTexture: './textures/floor.webp',
+	tagTexture: './textures/tag.webp',
+
+	// Text Options
+	fontPath: './fonts/christmas_bell_regular.otf',
+	fontSize: 0.5,
+	textPosition: new THREE.Vector3(0, 0.01, -0.4).toArray(),
+	textRotation: new THREE.Vector3(-1.5708, 0, 1.5708).toArray(),
+	maxWidth: 0.5,
 
 	// Post Processing Options
 	highlightColor: new THREE.Color('white'),
@@ -71,11 +83,13 @@ const boxOpeningClips = [ // Clips to play from 'allClips' when clicking to open
 	'TopPhysics',
 	'ExplosionScale',
 	'ExplosionKey',
-	'ChargeEffect'
+	'ChargeEffect',
+	'LootBeam',
+	'SanteeTag'
 ];
 
 // Window Sizes
-let containerWidth: number, containerHeight: number, windowAspectRatio: number, container: HTMLElement;
+let containerWidth: number, containerHeight: number, containerAspectRatio: number, container: HTMLElement;
 
 // Rendering
 let scene: THREE.Scene, renderer: THREE.WebGLRenderer, camera: THREE.PerspectiveCamera, controls: OrbitControls;
@@ -84,13 +98,18 @@ let scene: THREE.Scene, renderer: THREE.WebGLRenderer, camera: THREE.Perspective
 let pointer: THREE.Vector2, raycaster: THREE.Raycaster, opened: boolean;
 
 // Loaders
-let loader: GLTFLoader, loadingManager: THREE.LoadingManager;
+let gltfLoader: GLTFLoader, textureLoader: THREE.TextureLoader, loadingManager: THREE.LoadingManager;
+let materials: any;
 
 // Animations
 let clock: THREE.Clock, mixer: THREE.AnimationMixer, allClips: THREE.AnimationClip[], initAction: THREE.AnimationAction;
+let effectObjs: THREE.Group | null;
+
+// Text
+let tagText: Text;
 
 // Effects & Post Processing
-let effect: OutlineEffect, composer: EffectComposer, outlinePass: OutlinePass, outlinedObjects: THREE.Object3D[];
+let composer: EffectComposer, outlinePass: OutlinePass, outlinedObjects: THREE.Object3D[];
 
 // Checks for WebGL support
 if (WebGL.isWebGL2Available()) {
@@ -127,10 +146,10 @@ if (WebGL.isWebGL2Available()) {
 // Setup renderer & scene objects
 function init() {
 
-	container = document.getElementById('three-container')!;
+	container = document.getElementById('container')!;
 	containerWidth = container.clientWidth;
 	containerHeight = container.clientHeight;
-	windowAspectRatio = containerWidth / containerHeight;
+	containerAspectRatio = containerWidth / containerHeight;
 
 	renderer = new THREE.WebGLRenderer();
 	renderer.setSize(containerWidth, containerHeight);
@@ -145,37 +164,33 @@ function init() {
 
 	scene = new THREE.Scene();
 
-	camera = new THREE.PerspectiveCamera(options.cameraFOV, windowAspectRatio, 0.1, 100);
+	// Camera Setup
+	camera = new THREE.PerspectiveCamera(options.cameraFOV, containerAspectRatio, 0.1, 100);
 	camera.position.set(...options.cameraPosition);
 	camera.rotation.set(...options.cameraRotation);
-	camera.layers.enable(0); // enabled by default
-	camera.layers.enable(1);
 
 	// controls = new OrbitControls(camera, renderer.domElement);
 	// controls.update();
 
+	// Mouse/Pointer setup
 	pointer = new THREE.Vector2();
 	raycaster = new THREE.Raycaster();
 	opened = false;
 
-	loader = new GLTFLoader(loadingManager);
-	// Use DRACOLoader to decode compressed mesh data <=== [REMOVED CUS ANNOYING]
-	// const dracoLoader = new DRACOLoader(loadingManager);
-	// dracoLoader.setDecoderPath('./node_modules/three/examples/jsm/libs/draco/');
-	// dracoLoader.preload();
-	// loader.setDRACOLoader(dracoLoader);
-
-	// Scene setup
+	// Animations setup
 	clock = new THREE.Clock();
 	mixer = new THREE.AnimationMixer(scene);
-
 	allClips = new Array();
 
+	mixer.addEventListener('finished', onAnimationFinish);
+
+	// Scene setup
 	scene.background = options.backgroundColor;
 
 	const ambientLight = new THREE.AmbientLight(options.ambientColor);
 	scene.add(ambientLight);
 
+	// Lighting for the box
 	const light = new THREE.PointLight(options.lightColor, options.lightIntensity, 100);
 	light.position.set(...options.lightPosition);
 	light.castShadow = options.lightShadows;
@@ -185,41 +200,46 @@ function init() {
 	light.shadow.radius = -0.0001;
 	scene.add(light);
 
+	// Lighting for the tag
+	// const tagLight = new THREE.PointLight(options.lightColor, 20, 20);
+	// tagLight.position.set(...options.cameraPosition);
+	// scene.add(tagLight);
+
+	// Loaders setup
+	gltfLoader = new GLTFLoader(loadingManager);
+	// Use DRACOLoader to decode compressed mesh data <=== [REMOVED CUS ANNOYING]
+	// const dracoLoader = new DRACOLoader(loadingManager);
+	// dracoLoader.setDecoderPath('./node_modules/three/examples/jsm/libs/draco/');
+	// dracoLoader.preload();
+	// loader.setDRACOLoader(dracoLoader);
+
+	textureLoader = new THREE.TextureLoader(loadingManager);
+
 	// Import/Load GLTF models
+	const boxTex = loadTexture(options.boxTexture, [3, 3]);
+	const floorTex = loadTexture(options.floorTexture);
+	floorTex.premultiplyAlpha = true;
+	const tagTex = loadTexture(options.tagTexture);
+
+	materials = { // Material overrides
+		effect: new THREE.MeshBasicMaterial({ color: options.effectColor }),
+		beam: new THREE.MeshBasicMaterial({ color: options.beamColor }),
+		ribbon: new THREE.MeshToonMaterial({ color: options.ribbonColor }),
+		lid: new THREE.MeshToonMaterial({ color: options.lidColor }),
+		box: new THREE.MeshToonMaterial({ map: boxTex }),
+		inside: new THREE.MeshBasicMaterial({ color: options.insideColor }),
+		outline: new THREE.MeshBasicMaterial({ color: options.outlineColor }),
+		floor: new THREE.MeshToonMaterial({ map: floorTex }),
+		tag: new THREE.MeshBasicMaterial({ map: tagTex }),
+	};
+
 	loadModel(options.presentModelPath);
 	loadModel(options.effectsModelPath);
 
-	// Configure Post Processing
-	effect = new OutlineEffect(renderer, { defaultThickness: 0.005 });
-	effect.setSize(containerWidth, containerHeight);
-	effect.setPixelRatio(window.devicePixelRatio);
-
-	// OutlinePass setup
-	// Extends RenderPass to override render method to use OutlineEffect's renderer.
-	// A workaround to use both OutlineEffect and PostProcessing together.
-	class OutlineEffectRenderPass extends RenderPass {
-		effect: OutlineEffect;
-		constructor(
-			effect: OutlineEffect,
-			scene: THREE.Scene,
-			camera: THREE.Camera,
-			overrideMaterial = null,
-			clearColor = null,
-			clearAlpha = null
-		) {
-			super(scene, camera, overrideMaterial, clearColor, clearAlpha);
-			this.effect = effect;
-		}
-
-		render(_renderer: THREE.WebGLRenderer, writeBuffer: any, readBuffer: any) {
-			super.render(this.effect as unknown as THREE.WebGLRenderer, writeBuffer, readBuffer, 0, true);
-		}
-	}
-
 	composer = new EffectComposer(renderer);
-	composer.setSize(containerWidth, containerHeight);
-	composer.setPixelRatio(window.devicePixelRatio);
-	composer.addPass(new OutlineEffectRenderPass(effect, scene, camera));
+
+	const renderPass = new RenderPass(scene, camera);
+	composer.addPass(renderPass);
 
 	outlinePass = new OutlinePass(new THREE.Vector2(containerWidth, containerHeight), scene, camera);
 	outlinedObjects = new Array();
@@ -260,12 +280,20 @@ function onWindowResize() {
 	containerWidth = container.clientWidth;
 	containerHeight = container.clientHeight;
 
-	camera.aspect = containerWidth / containerHeight;
+	// Calculate the new width and height while maintaining the original aspect ratio
+	let newWidth = containerWidth;
+	let newHeight = newWidth / containerAspectRatio;
+
+	if (newHeight > containerHeight) {
+		newHeight = containerHeight;
+		newWidth = newHeight * containerAspectRatio;
+	}
+
+	camera.aspect = containerAspectRatio;
 	camera.updateProjectionMatrix();
 
-	renderer.setSize(containerWidth, containerHeight);
-	effect.setSize(containerWidth, containerHeight);
-	composer.setSize(containerWidth, containerHeight);
+	renderer.setSize(newWidth, newHeight);
+	composer.setSize(newWidth, newHeight);
 }
 
 function onPointerMove(event: { clientX: number; clientY: number; }) {
@@ -317,71 +345,100 @@ function checkIntersection(clicked = false) {
 
 }
 
-function loadModel(modelPath: string) {
-	loader.load(modelPath, function (gltf) {
-
-		// Traverse model for overrides
-		gltf.scene.traverse((obj) => {
-
-			// Override Materials with three.js Toon or Basic Materials
-			if (obj instanceof THREE.Mesh && obj.material) {
-
-				switch (obj.material.name) {
-					case 'Effect':
-						obj.material = materialConvert(new THREE.MeshBasicMaterial(), obj.material, options.effectColor);
-						obj.material.transparent = true;
-						obj.material.opacity = 0.7;
-						obj.material.side = THREE.DoubleSide;
-						break;
-					case 'Ribbon':
-						obj.material = materialConvert(new THREE.MeshToonMaterial(), obj.material, options.ribbonColor);
-						outlineAndShadow(obj);
-						break;
-					case 'Box Wrapping Top':
-						obj.material = materialConvert(new THREE.MeshToonMaterial(), obj.material, options.lidColor);
-						outlineAndShadow(obj);
-						break;
-					case 'Box Wrapping':
-						obj.material = materialConvert(new THREE.MeshToonMaterial(), obj.material, null, loadTexture(options.boxTexture));
-						outlineAndShadow(obj);
-						break;
-					case 'Box Inside':
-						obj.material = materialConvert(new THREE.MeshBasicMaterial(), obj.material, options.insideColor);
-						outlineAndShadow(obj);
-						break;
-					case 'Floor':
-						const texture = loadTexture(options.floorTexture, [1, 1]);
-						texture.premultiplyAlpha = true;
-						obj.material = materialConvert(new THREE.MeshToonMaterial(), obj.material, null, texture);
-						obj.material.transparent = true;
-						obj.material.opacity = 0.9;
-						obj.receiveShadow = true;
-						break;
+function onAnimationFinish(event: { action: THREE.AnimationAction; direction: number; }) {
+	switch (event.action.getClip().name) {
+		case 'ChargeEffect': // Dispose of charge effect objects when animation is finished.
+			effectObjs?.traverse((obj) => {
+				scene.remove(obj);
+				if (obj instanceof THREE.Mesh && obj.geometry) {
+					obj.geometry.dispose();
 				}
-			}
-		});
+			});
 
-		allClips.push(...gltf.animations);
-
-		// Setup box dropping animation to play after scene initially loads
-		const clip = THREE.AnimationClip.findByName(allClips, 'BoxDrop');
-		if (clip) {
-			initAction = mixer.clipAction(clip);
-			initAction.clampWhenFinished = true;
-			initAction.setLoop(THREE.LoopOnce, 1);
-		}
-
-		scene.add(gltf.scene);
-
-	}, function (xhr) { // Load Progress
-
-		console.log((xhr.loaded / xhr.total * 100) + '% loaded');
-
-	}, function (error) { // Load Error
-
-		console.error('Error', error);
-
+			effectObjs = null;
+			materials.effect.dispose();
+			break;
 	}
+}
+
+function loadModel(modelPath: string) {
+	gltfLoader.load(modelPath,
+
+		function (gltf) { // onLoad
+
+			if (modelPath == options.effectsModelPath) {
+				effectObjs = gltf.scene;
+			}
+
+			gltf.scene.traverse((obj) => { // Traverse model for overrides
+
+				// Override Materials with custom three.js Toon or Basic Materials
+				if (obj instanceof THREE.Mesh && obj.material) {
+
+					switch (obj.material.name) {
+						case 'Effect':
+							obj.material = materials.effect;
+							obj.material.transparent = true;
+							obj.material.opacity = 0.7;
+							break;
+						case 'BeamEffect':
+							obj.material = materials.beam;
+							break;
+						case 'Ribbon':
+							obj.material = materials.ribbon;
+							outlineAndShadow(obj);
+							break;
+						case 'Box Wrapping Top':
+							obj.material = materials.lid;
+							outlineAndShadow(obj);
+							break;
+						case 'Box Wrapping':
+							obj.material = materials.box;
+							outlineAndShadow(obj);
+							break;
+						case 'Box Inside':
+							obj.material = materials.inside;
+							outlineAndShadow(obj);
+							break;
+						case 'Outline':
+							obj.material = materials.outline;
+							break;
+						case 'Floor':
+							obj.material = materials.floor;
+							obj.material.transparent = true;
+							obj.material.opacity = 0.9;
+							obj.receiveShadow = true;
+							break;
+						case 'Tag':
+							obj.frustumCulled = false;
+							obj.material = materials.tag;
+							tagText = attachText(obj, santee.name);
+							break;
+					}
+				}
+			});
+
+			allClips.push(...gltf.animations);
+
+			// Setup box dropping animation to play after scene initially loads
+			const clip = THREE.AnimationClip.findByName(allClips, 'BoxDrop');
+			if (clip) {
+				initAction = mixer.clipAction(clip);
+				initAction.clampWhenFinished = true;
+				initAction.setLoop(THREE.LoopOnce, 1);
+			}
+
+			scene.add(gltf.scene);
+
+		}, function (xhr) { // onProgress
+
+			// console.log('[MODEL] ' + (xhr.loaded / xhr.total * 100) + '% loaded');
+
+		}, function (err) { // onError
+
+			console.error('[Model Error]', err);
+
+		}
 	);
 }
 
@@ -397,46 +454,73 @@ function loadModel(modelPath: string) {
  */
 function loadTexture(
 	path: string,
-	repeat: [number, number] = [3, 3],
+	repeat: [number, number] = [1, 1],
 	wrapS: THREE.Wrapping = THREE.RepeatWrapping,
 	wrapT: THREE.Wrapping = THREE.RepeatWrapping,
 	colorSpace: THREE.ColorSpace = THREE.SRGBColorSpace
 
 ): THREE.Texture {
 
-	const texture = new THREE.TextureLoader(loadingManager).load(path);
-	texture.repeat.set(...repeat);
-	texture.wrapS = wrapS;
-	texture.wrapT = wrapT;
-	texture.colorSpace = colorSpace;
-	texture.flipY = false;
+	const texture = textureLoader.load(path,
+
+		function (texture) {
+			texture.repeat.set(...repeat);
+			texture.wrapS = wrapS;
+			texture.wrapT = wrapT;
+			texture.colorSpace = colorSpace;
+			texture.flipY = false;
+		},
+
+		undefined,
+
+		function (err) {
+			console.error('[Texture Error]', err);
+		}
+	);
 
 	return texture;
 }
 
 /**
- * Converts one material to another and returns the converted material.
+ * Generates and attaches text geometry to passed obj.
  *
- * @param {THREE.Material} material - material to convert to.
- * @param {THREE.Material} original - original material.
- * @param {THREE.Color} color - new color override.
- * @param {THREE.Texture} map - new map override.
- * @returns {THREE.Material}
+ * @param {THREE.Object3D} obj - obj to attach to.
+ * @param {string} text - text to write.
+ * @param {Font} font - font to use.
+ * @param {number} size - size of text.
+ * @param {THREE.Vector3Tuple} position - size of text.
+ * @param {THREE.Vector3Tuple} rotation - size of text.
+ * @param {number} maxWidth - size of text.
  */
-function materialConvert(
-	material: any = new THREE.MeshToonMaterial(),
-	original: THREE.Material,
-	color: THREE.Color | null = null,
-	map: THREE.Texture | null = null
-): THREE.Material {
-	material.copy(original);
+function attachText(
+	obj: THREE.Object3D,
+	text: string,
+	font: string = options.fontPath,
+	size: number = options.fontSize,
+	position: THREE.Vector3Tuple = options.textPosition,
+	rotation: THREE.Vector3Tuple = options.textRotation,
+	maxWidth: number = options.maxWidth
+) {
 
-	if (color) material.color.set(color);
-	if (map) material.map = map;
+	const thisText = new Text();
 
-	material.shadowSide = THREE.FrontSide;
+	thisText.text = '(' + text + ')';
+	thisText.font = font;
+	thisText.fontSize = size;
 
-	return material;
+	thisText.anchorX = 'center';
+	thisText.anchorY = 'middle';
+	thisText.position.set(...position);
+	thisText.rotation.set(...rotation);
+
+	thisText.maxWidth = maxWidth;
+	thisText.material = new THREE.MeshBasicMaterial({ color: new THREE.Color('black') });
+
+	thisText.sync();
+
+	obj.add(thisText as unknown as THREE.Object3D);
+
+	return thisText;
 }
 
 /**
@@ -462,4 +546,5 @@ function outlineAndShadow(obj: THREE.Object3D) {
 	outlinedObjects.push(obj);
 	obj.castShadow = true;
 	obj.receiveShadow = true;
+	((obj as THREE.Mesh).material as THREE.Material).shadowSide = THREE.FrontSide;
 }

@@ -14,6 +14,8 @@ Created by Lahkro for use in [tadmozeltov's](https://git.tadmozeltov.com/tadmoze
 
 [``@types/three``](https://github.com/DefinitelyTyped/DefinitelyTyped) DefinitelyTyped TypeScript definitions for three.js
 
+[``troika-three-text``](https://github.com/protectwise/troika) Troika Text for Three.js
+
 [``Vite``](https://vitejs.dev/) development server and build command
 ```
 npm install
