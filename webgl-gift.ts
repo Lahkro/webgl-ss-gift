@@ -25,14 +25,23 @@ import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { SMAAPass } from 'three/addons/postprocessing/SMAAPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 
-import WebGL from "three/addons/capabilities/WebGL.js";
-
+// troika-three-text
 import { Text } from 'troika-three-text';
+import { preloadFont } from 'troika-three-text';
+
+import WebGL from 'three/addons/capabilities/WebGL.js';
 
 const santee = {
 	name: 'Tad Mozeltov',
-	image: 'https://static-cdn.jtvnw.net/jtv_user_pictures/aa331098-796c-44a0-bad3-c72940c6181c-profile_image-70x70.png',
-}
+
+	get getName() {
+		return this.name;
+	},
+
+	set setName(newName: string) {
+		this.name = newName;
+	}
+};
 
 // SCENE & MODEL OPTIONS //
 const options = {
@@ -46,10 +55,13 @@ const options = {
 	cameraPosition: new THREE.Vector3(12.546, 4.350, 6.371).toArray(),
 	cameraRotation: new THREE.Vector3(-0.534, 1.037, 0.471).toArray(),
 	cameraFOV: 39.59,
+	controlsOn: false,
+	aspectRatio: 4 / 3,
 
 	// Model Options
 	presentModelPath: './models/present.glb',
 	effectsModelPath: './models/effects.glb',
+	raysModelPath: './models/rays.glb',
 	outlineColor: new THREE.Color(0x000000),
 	ribbonColor: new THREE.Color(0xFF9C00),
 	lidColor: new THREE.Color(0x13370a),
@@ -60,13 +72,16 @@ const options = {
 	boxTexture: './textures/wrap.webp',
 	floorTexture: './textures/floor.webp',
 	tagTexture: './textures/tag.webp',
+	burstTexture: './textures/sunburst.webp',
+	raysTexture: './textures/sunrays.webp',
 
 	// Text Options
 	fontPath: './fonts/christmas_bell_regular.otf',
 	fontSize: 0.5,
+	textColor: new THREE.Color('black'),
 	textPosition: new THREE.Vector3(0, 0.01, -0.4).toArray(),
 	textRotation: new THREE.Vector3(-1.5708, 0, 1.5708).toArray(),
-	maxWidth: 0.5,
+	maxWidth: 2.5,
 
 	// Post Processing Options
 	highlightColor: new THREE.Color('white'),
@@ -78,15 +93,27 @@ const options = {
 	},
 }
 
+// These are defined in the GLTF models.
 const boxOpeningClips = [ // Clips to play from 'allClips' when clicking to open box
 	'BoxOpen',
-	'TopPhysics',
+	'TopOpen',
 	'ExplosionScale',
 	'ExplosionKey',
 	'ChargeEffect',
 	'LootBeam',
 	'SanteeTag'
 ];
+
+const selectableObjs = [ // Objects that can be highlighted and clicked on
+	'Present_Box',
+	'Present_Top',
+	'Box_Tie_A',
+	'Box_Tie_B',
+	'Ribbon_Bow',
+	'Ribbon_End_L',
+	'Ribbon_End_R',
+	'Ribbon_Knot'
+]
 
 // Window Sizes
 let containerWidth: number, containerHeight: number, containerAspectRatio: number, container: HTMLElement;
@@ -126,8 +153,13 @@ if (WebGL.isWebGL2Available()) {
 
 	const progressBarContainer: HTMLElement = document.querySelector('.progress-bar-container')!;
 	loadingManager.onLoad = function () {
-		progressBarContainer.style.display = 'none';
-		initAction.play(); // Play the box dropping animation
+		setTimeout(() => { // Play the box dropping animation
+			progressBarContainer.style.display = 'none';
+			initAction.play();
+			playSelectedClips(allClips, ['RaysRotation']);
+			raysToTag();
+		}, 50); // Short delay to make sure animation is played properly.
+
 	}
 
 	loadingManager.onError = function (url) {
@@ -169,8 +201,10 @@ function init() {
 	camera.position.set(...options.cameraPosition);
 	camera.rotation.set(...options.cameraRotation);
 
-	// controls = new OrbitControls(camera, renderer.domElement);
-	// controls.update();
+	if (options.controlsOn) {
+		controls = new OrbitControls(camera, renderer.domElement);
+		controls.update();
+	}
 
 	// Mouse/Pointer setup
 	pointer = new THREE.Vector2();
@@ -220,22 +254,28 @@ function init() {
 	const floorTex = loadTexture(options.floorTexture);
 	floorTex.premultiplyAlpha = true;
 	const tagTex = loadTexture(options.tagTexture);
+	const burstTex = loadTexture(options.burstTexture);
+	const raysTex = loadTexture(options.raysTexture);
 
 	materials = { // Material overrides
-		effect: new THREE.MeshBasicMaterial({ color: options.effectColor }),
+		effect: new THREE.MeshBasicMaterial({ color: options.effectColor, transparent: true, opacity: 0.7 }),
 		beam: new THREE.MeshBasicMaterial({ color: options.beamColor }),
 		ribbon: new THREE.MeshToonMaterial({ color: options.ribbonColor }),
 		lid: new THREE.MeshToonMaterial({ color: options.lidColor }),
 		box: new THREE.MeshToonMaterial({ map: boxTex }),
 		inside: new THREE.MeshBasicMaterial({ color: options.insideColor }),
 		outline: new THREE.MeshBasicMaterial({ color: options.outlineColor }),
-		floor: new THREE.MeshToonMaterial({ map: floorTex }),
+		floor: new THREE.MeshToonMaterial({ map: floorTex, transparent: true, opacity: 0.9 }),
 		tag: new THREE.MeshBasicMaterial({ map: tagTex }),
+		sunburst: new THREE.MeshBasicMaterial({ map: burstTex, transparent: true, opacity: 0.25 }),
+		sunrays: new THREE.MeshBasicMaterial({ map: raysTex, transparent: true, opacity: 0.25 }),
 	};
 
 	loadModel(options.presentModelPath);
 	loadModel(options.effectsModelPath);
+	loadModel(options.raysModelPath);
 
+	// Post processing setup
 	composer = new EffectComposer(renderer);
 
 	const renderPass = new RenderPass(scene, camera);
@@ -248,7 +288,7 @@ function init() {
 	composer.addPass(outlinePass);
 
 	const bloomPass = new UnrealBloomPass(
-		new THREE.Vector2(window.innerWidth, window.innerHeight),
+		new THREE.Vector2(containerWidth, containerHeight),
 		options.bloomParams.strength,
 		options.bloomParams.radius,
 		options.bloomParams.threshold
@@ -261,6 +301,7 @@ function init() {
 	const outputPass = new OutputPass();
 	composer.addPass(outputPass);
 
+	onWindowResize();
 	// console.table(options);
 }
 
@@ -269,27 +310,28 @@ function animate() {
 	const delta = clock.getDelta();
 
 	mixer.update(delta);
+	raysToTag();
 
-	// controls.update();
+	if (options.controlsOn) controls.update();
 
 	composer.render();
 }
 
-// Updates scene render size to always fit window
+// Updates scene render size to always fit container
 function onWindowResize() {
 	containerWidth = container.clientWidth;
 	containerHeight = container.clientHeight;
 
-	// Calculate the new width and height while maintaining the original aspect ratio
+	// Calculate the new width and height while maintaining the desired aspect ratio
 	let newWidth = containerWidth;
-	let newHeight = newWidth / containerAspectRatio;
+	let newHeight = newWidth / options.aspectRatio;
 
 	if (newHeight > containerHeight) {
 		newHeight = containerHeight;
-		newWidth = newHeight * containerAspectRatio;
+		newWidth = newHeight * options.aspectRatio;
 	}
 
-	camera.aspect = containerAspectRatio;
+	camera.aspect = options.aspectRatio;
 	camera.updateProjectionMatrix();
 
 	renderer.setSize(newWidth, newHeight);
@@ -319,11 +361,7 @@ function checkIntersection(clicked = false) {
 	const intersects = raycaster.intersectObject(scene, true);
 
 	// If pointer is over the box
-	if (intersects.length > 0 &&
-		(
-			intersects[0].object.parent?.name == 'Present_Box' ||
-			intersects[0].object.parent?.name == 'Present_Top'
-		)) {
+	if (intersects.length > 0 && selectableObjs.includes(intersects[0].object.parent!.name)) {
 
 		// const selectedObject = intersects[0].object;
 		outlinePass.selectedObjects = outlinedObjects;
@@ -332,9 +370,12 @@ function checkIntersection(clicked = false) {
 		if (clicked && !opened) {
 			const info = document.getElementById('info')!;
 			info.style.display = 'none';
+
+			playSelectedClips(allClips, boxOpeningClips, true);
+			setText(santee.getName); // setText in case santeeName has been changed since scene initialized.
+			outlinePass.selectedObjects = outlinedObjects = [];
+
 			opened = true;
-			playSelectedClips(allClips, boxOpeningClips);
-			outlinedObjects = [];
 		}
 
 	} else {
@@ -378,8 +419,6 @@ function loadModel(modelPath: string) {
 					switch (obj.material.name) {
 						case 'Effect':
 							obj.material = materials.effect;
-							obj.material.transparent = true;
-							obj.material.opacity = 0.7;
 							break;
 						case 'BeamEffect':
 							obj.material = materials.beam;
@@ -402,17 +441,21 @@ function loadModel(modelPath: string) {
 							break;
 						case 'Outline':
 							obj.material = materials.outline;
+							outlinedObjects.push(obj);
 							break;
 						case 'Floor':
 							obj.material = materials.floor;
-							obj.material.transparent = true;
-							obj.material.opacity = 0.9;
 							obj.receiveShadow = true;
 							break;
 						case 'Tag':
-							obj.frustumCulled = false;
 							obj.material = materials.tag;
-							tagText = attachText(obj, santee.name);
+							attachText(obj, santee.getName);
+							break;
+						case 'Sunburst':
+							obj.material = materials.sunburst;
+							break;
+						case 'Sunrays':
+							obj.material = materials.sunrays;
 							break;
 					}
 				}
@@ -429,6 +472,7 @@ function loadModel(modelPath: string) {
 			}
 
 			scene.add(gltf.scene);
+			renderer.compile(gltf.scene, camera);
 
 		}, function (xhr) { // onProgress
 
@@ -486,11 +530,11 @@ function loadTexture(
  *
  * @param {THREE.Object3D} obj - obj to attach to.
  * @param {string} text - text to write.
- * @param {Font} font - font to use.
+ * @param {string} font - path to font.
  * @param {number} size - size of text.
- * @param {THREE.Vector3Tuple} position - size of text.
- * @param {THREE.Vector3Tuple} rotation - size of text.
- * @param {number} maxWidth - size of text.
+ * @param {THREE.Vector3Tuple} position - position of text.
+ * @param {THREE.Vector3Tuple} rotation - rotation of text.
+ * @param {number} maxWidth - maximum width before wrapping.
  */
 function attachText(
 	obj: THREE.Object3D,
@@ -501,26 +545,42 @@ function attachText(
 	rotation: THREE.Vector3Tuple = options.textRotation,
 	maxWidth: number = options.maxWidth
 ) {
+	preloadFont(
+		{
+			font: font,
+			characters: 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ`1234567890-=[];,./~!@#$%^&*()_+{}|:<>?\'\"',
+			sdfGlyphSize: undefined as unknown as number,
+		},
+		() => {
+			const thisText = new Text();
+			thisText.text = '(' + text + ')';
+			thisText.font = font;
+			thisText.fontSize = size;
+			thisText.material = new THREE.MeshBasicMaterial({ color: options.textColor });
 
-	const thisText = new Text();
+			thisText.anchorX = 'center' as unknown as number;
+			thisText.anchorY = 'middle' as unknown as number;
+			thisText.position.set(...position);
+			thisText.rotation.set(...rotation);
 
-	thisText.text = '(' + text + ')';
-	thisText.font = font;
-	thisText.fontSize = size;
+			thisText.maxWidth = maxWidth;
+			thisText.overflowWrap = 'break-word';
 
-	thisText.anchorX = 'center';
-	thisText.anchorY = 'middle';
-	thisText.position.set(...position);
-	thisText.rotation.set(...rotation);
 
-	thisText.maxWidth = maxWidth;
-	thisText.material = new THREE.MeshBasicMaterial({ color: new THREE.Color('black') });
+			thisText.frustumCulled = false;
 
-	thisText.sync();
+			thisText.sync();
 
-	obj.add(thisText as unknown as THREE.Object3D);
+			obj.add(thisText as unknown as THREE.Object3D);
 
-	return thisText;
+			tagText = thisText;
+		}
+	)
+}
+
+function setText(text: string) {
+	tagText.text = '(' + text + ')';
+	tagText.sync();
 }
 
 /**
@@ -529,14 +589,18 @@ function attachText(
  * @param {Array<THREE.AnimationClip>} clips - material to convert to.
  * @param {Array<string>} selection - original material.
  */
-function playSelectedClips(clips: Array<THREE.AnimationClip>, selection: Array<string>) {
+function playSelectedClips(
+	clips: Array<THREE.AnimationClip>,
+	selection: Array<string>,
+	loopOnce?: boolean,
+) {
 	clips.forEach(clip => { // Play all of the clips defined in selection for box opening
 		if (selection.some(name => clip.name.includes(name))) {
 			THREE.AnimationUtils.makeClipAdditive(clip);
 			const action = mixer.clipAction(clip);
 			action.blendMode = THREE.AdditiveAnimationBlendMode;
 			action.clampWhenFinished = true;
-			action.setLoop(THREE.LoopOnce, 1);
+			if (loopOnce) action.setLoop(THREE.LoopOnce, 0);
 			action.play();
 		}
 	});
@@ -547,4 +611,21 @@ function outlineAndShadow(obj: THREE.Object3D) {
 	obj.castShadow = true;
 	obj.receiveShadow = true;
 	((obj as THREE.Mesh).material as THREE.Material).shadowSide = THREE.FrontSide;
+}
+
+function raysToTag() {
+	const tag = scene.getObjectByName('SanteeTag');
+	const sunburst = scene.getObjectByName('Sunburst');
+	const sunrays = scene.getObjectByName('Sunrays');
+
+	if (tag && sunburst && sunrays) {
+		if (tag.children.length == 0) {
+			const intermediaryChild = new THREE.Object3D();
+
+			tag.add(intermediaryChild);
+		}
+
+		sunburst.position.setFromMatrixPosition(tag.children[0].matrixWorld);
+		sunrays.position.setFromMatrixPosition(tag.children[0].matrixWorld);
+	}
 }
