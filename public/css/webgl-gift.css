@@ -21,10 +21,10 @@ body {
 
 #container {
     position: fixed;
-    top: 10px;
+    top: 10%;
     aspect-ratio: 4 / 3;
-    width: 80%;
-    max-height: calc(100vh - 32px);
+    width: 60%;
+    max-height: 80%;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -59,7 +59,7 @@ label {
 
 #info {
     position: fixed;
-    top: 10px;
+    top: 10%;
     max-width: fit-content;
     max-height: fit-content;
     padding-inline: 5px;
@@ -67,7 +67,7 @@ label {
     z-index: 100;
     color: rgb(0, 0, 0);
     font-family: Arial, sans-serif;
-    font-size: 3vh;
+    font-size: 2vw;
     text-align: center;
     text-wrap: wrap;
     background-color: #ffffff;
