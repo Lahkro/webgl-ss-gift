@@ -83,6 +83,11 @@ const options = {
 	textRotation: new THREE.Vector3(-1.5708, 0, 1.5708).toArray(),
 	maxWidth: 2.5,
 
+	// Audio Options
+	dropSoundPath: './audio/drop.ogg',
+	openSoundPath: './audio/open.ogg',
+	volume: 1,
+
 	// Post Processing Options
 	highlightColor: new THREE.Color('white'),
 	bloomParams: {
@@ -93,7 +98,7 @@ const options = {
 	},
 }
 
-// These are defined in the GLTF models.
+// These are defined from the GLTF models.
 const boxOpeningClips = [ // Clips to play from 'allClips' when clicking to open box
 	'BoxOpen',
 	'TopOpen',
@@ -135,6 +140,9 @@ let effectObjs: THREE.Group | null;
 // Text
 let tagText: Text;
 
+// Audio
+let audioLoader: THREE.AudioLoader, audioSource_open: THREE.Audio, audioSource_drop: THREE.Audio, listener: THREE.AudioListener;
+
 // Effects & Post Processing
 let composer: EffectComposer, outlinePass: OutlinePass, outlinedObjects: THREE.Object3D[];
 
@@ -153,12 +161,14 @@ if (WebGL.isWebGL2Available()) {
 
 	const progressBarContainer: HTMLElement = document.querySelector('.progress-bar-container')!;
 	loadingManager.onLoad = function () {
-		setTimeout(() => { // Play the box dropping animation
+		// Hide progress bar container and play initial animations & audio.
+		setTimeout(() => {
 			progressBarContainer.style.display = 'none';
+			audioSource_drop.play(); // Only works after user interacts with page in some way due to autoplay policy.
 			initAction.play();
 			playSelectedClips(allClips, ['RaysRotation']);
 			raysToTag();
-		}, 50); // Short delay to make sure animation is played properly.
+		}, 1000); // Short delay to make sure animation is played properly.
 
 	}
 
@@ -205,6 +215,17 @@ function init() {
 		controls = new OrbitControls(camera, renderer.domElement);
 		controls.update();
 	}
+
+	// Audio Setup
+	listener = new THREE.AudioListener();
+	camera.add(listener);
+
+	audioSource_drop = new THREE.Audio(listener);
+	audioSource_open = new THREE.Audio(listener);
+
+	audioLoader = new THREE.AudioLoader(loadingManager);
+	loadAudio(options.dropSoundPath, audioSource_drop, options.volume);
+	loadAudio(options.openSoundPath, audioSource_open, options.volume);
 
 	// Mouse/Pointer setup
 	pointer = new THREE.Vector2();
@@ -368,6 +389,8 @@ function checkIntersection(clicked = false) {
 
 		// If pointer has clicked & wasn't already opened
 		if (clicked && !opened) {
+			audioSource_open.play();
+
 			const info = document.getElementById('info')!;
 			info.style.display = 'none';
 
@@ -526,6 +549,24 @@ function loadTexture(
 }
 
 /**
+ * Loads audio from given path.
+ *
+ * @param {String} path - path to audio.
+ * @param {THREE.Audio} source - audio source to play from.
+ * @param {number} volume - volume to play audio.
+ * @param {boolean} loop - whether to loop audio.
+ */
+function loadAudio(path: string, source: THREE.Audio, volume: number = 1.0, loop: boolean = false) {
+	audioLoader.load(path,
+
+		function (buffer) {
+			source.setBuffer(buffer);
+			source.setLoop(loop);
+			source.setVolume(volume);
+		});
+}
+
+/**
  * Generates and attaches text geometry to passed obj.
  *
  * @param {THREE.Object3D} obj - obj to attach to.
@@ -565,7 +606,6 @@ function attachText(
 
 			thisText.maxWidth = maxWidth;
 			thisText.overflowWrap = 'break-word';
-
 
 			thisText.frustumCulled = false;
 
