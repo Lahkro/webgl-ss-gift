@@ -11,7 +11,7 @@
 import * as THREE from 'three';
 
 // Loaders
-import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js'
+// import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js'
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 
 // Controls (only used for development)
@@ -31,8 +31,10 @@ import { preloadFont } from 'troika-three-text';
 
 import WebGL from 'three/addons/capabilities/WebGL.js';
 
+export { santee, setText };
+
 const santee = {
-	name: 'Tad Mozeltov',
+	name: 'tadmozeltov',
 
 	get getName() {
 		return this.name;
@@ -40,11 +42,12 @@ const santee = {
 
 	set setName(newName: string) {
 		this.name = newName;
+		setText(tagText, newName);
 	}
 };
 
 // SCENE & MODEL OPTIONS //
-const options = {
+const CONFIG = {
 	// Scene Options
 	backgroundColor: new THREE.Color(0x0A0E10),
 	ambientColor: new THREE.Color('gray'),
@@ -62,6 +65,11 @@ const options = {
 	presentModelPath: './models/present.glb',
 	effectsModelPath: './models/effects.glb',
 	raysModelPath: './models/rays.glb',
+	boxTexture: './textures/wrap.webp',
+	floorTexture: './textures/floor.webp',
+	tagTexture: './textures/tag.webp',
+	burstTexture: './textures/sunburst.webp',
+	raysTexture: './textures/sunrays.webp',
 	outlineColor: new THREE.Color(0x000000),
 	ribbonColor: new THREE.Color(0xFF9C00),
 	lidColor: new THREE.Color(0x13370a),
@@ -69,11 +77,6 @@ const options = {
 	insideColor: new THREE.Color(0xFFFFFF),
 	effectColor: new THREE.Color(0xFFC94A),
 	beamColor: new THREE.Color(0xFFC94A),
-	boxTexture: './textures/wrap.webp',
-	floorTexture: './textures/floor.webp',
-	tagTexture: './textures/tag.webp',
-	burstTexture: './textures/sunburst.webp',
-	raysTexture: './textures/sunrays.webp',
 
 	// Text Options
 	fontPath: './fonts/christmas_bell_regular.otf',
@@ -82,6 +85,7 @@ const options = {
 	textPosition: new THREE.Vector3(0, 0.01, -0.4).toArray(),
 	textRotation: new THREE.Vector3(-1.5708, 0, 1.5708).toArray(),
 	maxWidth: 2.5,
+	maxHeight: 1.3,
 
 	// Audio Options
 	dropSoundPath: './audio/drop.ogg',
@@ -154,9 +158,9 @@ if (WebGL.isWebGL2Available()) {
 
 	loadingManager = new THREE.LoadingManager();
 
-	const progressBar = document.getElementById('progress-bar')! as HTMLProgressElement;
+	const progressBar: HTMLElement = document.getElementById('progress-bar')!;
 	loadingManager.onProgress = function (_url, loaded, total) {
-		progressBar.value = (loaded / total) * 100;
+		if (progressBar instanceof HTMLProgressElement) progressBar.value = (loaded / total) * 100;
 	}
 
 	const progressBarContainer: HTMLElement = document.querySelector('.progress-bar-container')!;
@@ -207,11 +211,11 @@ function init() {
 	scene = new THREE.Scene();
 
 	// Camera Setup
-	camera = new THREE.PerspectiveCamera(options.cameraFOV, containerAspectRatio, 0.1, 100);
-	camera.position.set(...options.cameraPosition);
-	camera.rotation.set(...options.cameraRotation);
+	camera = new THREE.PerspectiveCamera(CONFIG.cameraFOV, containerAspectRatio, 0.1, 100);
+	camera.position.set(...CONFIG.cameraPosition);
+	camera.rotation.set(...CONFIG.cameraRotation);
 
-	if (options.controlsOn) {
+	if (CONFIG.controlsOn) {
 		controls = new OrbitControls(camera, renderer.domElement);
 		controls.update();
 	}
@@ -224,8 +228,8 @@ function init() {
 	audioSource_open = new THREE.Audio(listener);
 
 	audioLoader = new THREE.AudioLoader(loadingManager);
-	loadAudio(options.dropSoundPath, audioSource_drop, options.volume);
-	loadAudio(options.openSoundPath, audioSource_open, options.volume);
+	loadAudio(CONFIG.dropSoundPath, audioSource_drop, CONFIG.volume);
+	loadAudio(CONFIG.openSoundPath, audioSource_open, CONFIG.volume);
 
 	// Mouse/Pointer setup
 	pointer = new THREE.Vector2();
@@ -240,15 +244,15 @@ function init() {
 	mixer.addEventListener('finished', onAnimationFinish);
 
 	// Scene setup
-	scene.background = options.backgroundColor;
+	scene.background = CONFIG.backgroundColor;
 
-	const ambientLight = new THREE.AmbientLight(options.ambientColor);
+	const ambientLight = new THREE.AmbientLight(CONFIG.ambientColor);
 	scene.add(ambientLight);
 
 	// Lighting for the box
-	const light = new THREE.PointLight(options.lightColor, options.lightIntensity, 100);
-	light.position.set(...options.lightPosition);
-	light.castShadow = options.lightShadows;
+	const light = new THREE.PointLight(CONFIG.lightColor, CONFIG.lightIntensity, 100);
+	light.position.set(...CONFIG.lightPosition);
+	light.castShadow = CONFIG.lightShadows;
 	light.shadow.mapSize.width = 2048;
 	light.shadow.mapSize.height = 2048;
 	light.shadow.bias = -0.0001;
@@ -270,31 +274,31 @@ function init() {
 
 	textureLoader = new THREE.TextureLoader(loadingManager);
 
-	// Import/Load GLTF models
-	const boxTex = loadTexture(options.boxTexture, [3, 3]);
-	const floorTex = loadTexture(options.floorTexture);
+	// Load GLTF models & textures
+	const boxTex = loadTexture(CONFIG.boxTexture, [3, 3]);
+	const floorTex = loadTexture(CONFIG.floorTexture);
 	floorTex.premultiplyAlpha = true;
-	const tagTex = loadTexture(options.tagTexture);
-	const burstTex = loadTexture(options.burstTexture);
-	const raysTex = loadTexture(options.raysTexture);
+	const tagTex = loadTexture(CONFIG.tagTexture);
+	const burstTex = loadTexture(CONFIG.burstTexture);
+	const raysTex = loadTexture(CONFIG.raysTexture);
 
-	materials = { // Material overrides
-		effect: new THREE.MeshBasicMaterial({ color: options.effectColor, transparent: true, opacity: 0.7 }),
-		beam: new THREE.MeshBasicMaterial({ color: options.beamColor }),
-		ribbon: new THREE.MeshToonMaterial({ color: options.ribbonColor }),
-		lid: new THREE.MeshToonMaterial({ color: options.lidColor }),
+	materials = { // Create material overrides
+		effect: new THREE.MeshBasicMaterial({ color: CONFIG.effectColor, transparent: true, opacity: 0.7 }),
+		beam: new THREE.MeshBasicMaterial({ color: CONFIG.beamColor }),
+		ribbon: new THREE.MeshToonMaterial({ color: CONFIG.ribbonColor }),
+		lid: new THREE.MeshToonMaterial({ color: CONFIG.lidColor }),
 		box: new THREE.MeshToonMaterial({ map: boxTex }),
-		inside: new THREE.MeshBasicMaterial({ color: options.insideColor }),
-		outline: new THREE.MeshBasicMaterial({ color: options.outlineColor }),
+		inside: new THREE.MeshBasicMaterial({ color: CONFIG.insideColor }),
+		outline: new THREE.MeshBasicMaterial({ color: CONFIG.outlineColor }),
 		floor: new THREE.MeshToonMaterial({ map: floorTex, transparent: true, opacity: 0.9 }),
 		tag: new THREE.MeshBasicMaterial({ map: tagTex }),
 		sunburst: new THREE.MeshBasicMaterial({ map: burstTex, transparent: true, opacity: 0.25 }),
 		sunrays: new THREE.MeshBasicMaterial({ map: raysTex, transparent: true, opacity: 0.25 }),
 	};
 
-	loadModel(options.presentModelPath);
-	loadModel(options.effectsModelPath);
-	loadModel(options.raysModelPath);
+	loadModel(CONFIG.presentModelPath);
+	loadModel(CONFIG.effectsModelPath);
+	loadModel(CONFIG.raysModelPath);
 
 	// Post processing setup
 	composer = new EffectComposer(renderer);
@@ -304,15 +308,15 @@ function init() {
 
 	outlinePass = new OutlinePass(new THREE.Vector2(containerWidth, containerHeight), scene, camera);
 	outlinedObjects = new Array();
-	outlinePass.visibleEdgeColor.set(options.highlightColor);
-	outlinePass.hiddenEdgeColor.set(options.highlightColor);
+	outlinePass.visibleEdgeColor.set(CONFIG.highlightColor);
+	outlinePass.hiddenEdgeColor.set(CONFIG.highlightColor);
 	composer.addPass(outlinePass);
 
 	const bloomPass = new UnrealBloomPass(
 		new THREE.Vector2(containerWidth, containerHeight),
-		options.bloomParams.strength,
-		options.bloomParams.radius,
-		options.bloomParams.threshold
+		CONFIG.bloomParams.strength,
+		CONFIG.bloomParams.radius,
+		CONFIG.bloomParams.threshold
 	);
 	composer.addPass(bloomPass);
 
@@ -323,7 +327,6 @@ function init() {
 	composer.addPass(outputPass);
 
 	onWindowResize();
-	// console.table(options);
 }
 
 function animate() {
@@ -333,32 +336,35 @@ function animate() {
 	mixer.update(delta);
 	raysToTag();
 
-	if (options.controlsOn) controls.update();
+	if (CONFIG.controlsOn) controls.update();
 
 	composer.render();
 }
 
-// Updates scene render size to always fit container
+// Callback. Updates scene render size to always fit container
 function onWindowResize() {
 	containerWidth = container.clientWidth;
 	containerHeight = container.clientHeight;
 
 	// Calculate the new width and height while maintaining the desired aspect ratio
 	let newWidth = containerWidth;
-	let newHeight = newWidth / options.aspectRatio;
+	let newHeight = newWidth / CONFIG.aspectRatio;
 
 	if (newHeight > containerHeight) {
 		newHeight = containerHeight;
-		newWidth = newHeight * options.aspectRatio;
+		newWidth = newHeight * CONFIG.aspectRatio;
 	}
 
-	camera.aspect = options.aspectRatio;
+	camera.aspect = CONFIG.aspectRatio;
 	camera.updateProjectionMatrix();
 
 	renderer.setSize(newWidth, newHeight);
 	composer.setSize(newWidth, newHeight);
 }
 
+/**
+ * Callback
+ */
 function onPointerMove(event: { clientX: number; clientY: number; }) {
 
 	// Get the bounding box of the container to...
@@ -371,6 +377,9 @@ function onPointerMove(event: { clientX: number; clientY: number; }) {
 	checkIntersection();
 }
 
+/**
+ * Callback
+ */
 function onPointerUp(_event: any) {
 	checkIntersection(true);
 }
@@ -387,15 +396,16 @@ function checkIntersection(clicked = false) {
 		// const selectedObject = intersects[0].object;
 		outlinePass.selectedObjects = outlinedObjects;
 
-		// If pointer has clicked & wasn't already opened
-		if (clicked && !opened) {
+		const progressBarContainer: HTMLElement = document.querySelector('.progress-bar-container')!;
+
+		// If pointer has clicked, wasn't already opened, and scene is fully loaded
+		if (clicked && !opened && progressBarContainer.style.display == 'none') {
 			audioSource_open.play();
 
-			const info = document.getElementById('info')!;
-			info.style.display = 'none';
+			const info = document.getElementById('info');
+			if (info) info.style.display = 'none';
 
 			playSelectedClips(allClips, boxOpeningClips, true);
-			setText(santee.getName); // setText in case santeeName has been changed since scene initialized.
 			outlinePass.selectedObjects = outlinedObjects = [];
 
 			opened = true;
@@ -409,6 +419,9 @@ function checkIntersection(clicked = false) {
 
 }
 
+/**
+ * Callback
+ */
 function onAnimationFinish(event: { action: THREE.AnimationAction; direction: number; }) {
 	switch (event.action.getClip().name) {
 		case 'ChargeEffect': // Dispose of charge effect objects when animation is finished.
@@ -425,12 +438,15 @@ function onAnimationFinish(event: { action: THREE.AnimationAction; direction: nu
 	}
 }
 
+/**
+ * Loads model and sets material overrides.
+ */
 function loadModel(modelPath: string) {
 	gltfLoader.load(modelPath,
 
 		function (gltf) { // onLoad
 
-			if (modelPath == options.effectsModelPath) {
+			if (modelPath == CONFIG.effectsModelPath) {
 				effectObjs = gltf.scene;
 			}
 
@@ -563,14 +579,24 @@ function loadAudio(path: string, source: THREE.Audio, volume: number = 1.0, loop
 			source.setBuffer(buffer);
 			source.setLoop(loop);
 			source.setVolume(volume);
-		});
+
+		}, function (xhr) { // onProgress
+
+			// console.log('[AUDIO] ' + (xhr.loaded / xhr.total * 100) + '% loaded');
+
+		}, function (err) { // onError
+
+			console.error('[Audio Error]', err);
+
+		}
+	);
 }
 
 /**
  * Generates and attaches text geometry to passed obj.
  *
  * @param {THREE.Object3D} obj - obj to attach to.
- * @param {string} text - text to write.
+ * @param {string} name - name to write.
  * @param {string} font - path to font.
  * @param {number} size - size of text.
  * @param {THREE.Vector3Tuple} position - position of text.
@@ -579,48 +605,77 @@ function loadAudio(path: string, source: THREE.Audio, volume: number = 1.0, loop
  */
 function attachText(
 	obj: THREE.Object3D,
-	text: string,
-	font: string = options.fontPath,
-	size: number = options.fontSize,
-	position: THREE.Vector3Tuple = options.textPosition,
-	rotation: THREE.Vector3Tuple = options.textRotation,
-	maxWidth: number = options.maxWidth
+	name: string,
+	font: string = CONFIG.fontPath,
+	size: number = CONFIG.fontSize,
+	position: THREE.Vector3Tuple = CONFIG.textPosition,
+	rotation: THREE.Vector3Tuple = CONFIG.textRotation,
+	maxWidth: number = CONFIG.maxWidth
 ) {
 	preloadFont(
 		{
 			font: font,
 			characters: 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ`1234567890-=[];,./~!@#$%^&*()_+{}|:<>?\'\"',
-			sdfGlyphSize: undefined as unknown as number,
+			sdfGlyphSize: 64,
 		},
 		() => {
 			const thisText = new Text();
-			thisText.text = '(' + text + ')';
+			thisText.text = `(${name})`;
 			thisText.font = font;
 			thisText.fontSize = size;
-			thisText.material = new THREE.MeshBasicMaterial({ color: options.textColor });
+			thisText.material = new THREE.MeshBasicMaterial({ color: CONFIG.textColor });
 
-			thisText.anchorX = 'center' as unknown as number;
-			thisText.anchorY = 'middle' as unknown as number;
+			thisText.anchorX = 'center';
+			thisText.anchorY = 'middle';
 			thisText.position.set(...position);
 			thisText.rotation.set(...rotation);
 
 			thisText.maxWidth = maxWidth;
-			thisText.overflowWrap = 'break-word';
+
+			// After sync completes, adjust size to fit
+			thisText.sync(() => { adjustFontSize(thisText); })
 
 			thisText.frustumCulled = false;
-
-			thisText.sync();
-
-			obj.add(thisText as unknown as THREE.Object3D);
+			if (thisText instanceof THREE.Object3D) obj.add(thisText);
 
 			tagText = thisText;
 		}
 	)
 }
 
-function setText(text: string) {
-	tagText.text = '(' + text + ')';
-	tagText.sync();
+/**
+ * Updates the Text to passed string.
+ * @param {Text} text - Text object.
+ * @param {string} string - string to set.
+ */
+function setText(text: Text, string: string) {
+	text.text = `(${string})`;
+	text.sync(() => { adjustFontSize(text); })
+}
+
+/**
+ * Recursively adjusts the Text font size until it fits within
+ * the maxWidth/maxHeight bounds.
+ * @param {Text} text - Text object.
+ * @param {string} tries - number of tries for recursion.
+ */
+function adjustFontSize(text: Text, tries: number = 20) {
+	const textInfo = text.textRenderInfo;
+
+	if (textInfo) {
+		const width = textInfo.blockBounds[2] - textInfo.blockBounds[0];
+		const height = textInfo.blockBounds[3] - textInfo.blockBounds[1];
+
+		if (tries <= 0) { // If name is way too long, show error on tag
+			text.text = '[ERROR]\nToo Long';
+			text.fontSize = CONFIG.fontSize;
+			text.sync();
+
+		} else if (width > CONFIG.maxWidth || height > CONFIG.maxHeight) {
+			text.fontSize *= 0.9;
+			text.sync(() => adjustFontSize(text, --tries));
+		}
+	}
 }
 
 /**
@@ -646,13 +701,19 @@ function playSelectedClips(
 	});
 }
 
+/**
+ * Allows object to be used for OutlinePass and enables shadows.
+ */
 function outlineAndShadow(obj: THREE.Object3D) {
 	outlinedObjects.push(obj);
 	obj.castShadow = true;
 	obj.receiveShadow = true;
-	((obj as THREE.Mesh).material as THREE.Material).shadowSide = THREE.FrontSide;
+	if (obj instanceof THREE.Mesh) obj.material.shadowSide = THREE.FrontSide;
 }
 
+/**
+ * Moves the ray objects with the tag object without changing their rotation.
+ */
 function raysToTag() {
 	const tag = scene.getObjectByName('SanteeTag');
 	const sunburst = scene.getObjectByName('Sunburst');
