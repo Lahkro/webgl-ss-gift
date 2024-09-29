@@ -32,31 +32,6 @@ body {
     box-shadow: 5px 5px 1px rgba(0, 0, 0, 0.7);
 }
 
-.progress-bar-container {
-    position: absolute;
-    left: 50%;
-    top: 50%;
-    transform: translate(-50%, -50%);
-    width: 100%;
-    height: 100%;
-    background-color: #0a0e10;
-    display: flex;
-    flex-direction: column;
-    justify-content: center;
-    align-items: center;
-}
-
-#progress-bar {
-    width: 30%;
-    margin-top: 0.5%;
-    height: 2%;
-}
-
-label {
-    color: white;
-    font-size: 100%;
-}
-
 #info {
     position: fixed;
     top: 10%;
