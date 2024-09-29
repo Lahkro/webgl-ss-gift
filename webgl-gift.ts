@@ -112,25 +112,24 @@ class WebGLGift {
 		'Ribbon_Knot'
 	]
 	
-	private document: Document;
 	private window: Window;
 
 	// Window Sizes
 	private container: HTMLElement;
-	private containerWidth: number;
-	private containerHeight: number
-	private containerAspectRatio: number
+	private containerWidth: number | undefined;
+	private containerHeight: number | undefined;
+	private containerAspectRatio: number | undefined;
 	
 	// Rendering
 	private scene: THREE.Scene;
 	private renderer: THREE.WebGLRenderer;
 	private camera: THREE.PerspectiveCamera;
-	private controls: OrbitControls;
+	private controls: OrbitControls | undefined;
 	
 	// Mouse Pointer & Raycaster
 	private pointer: THREE.Vector2;
 	private raycaster: THREE.Raycaster;
-	private opened: boolean;
+	private opened: boolean = false;
 	
 	// Loaders
 	private gltfLoader: GLTFLoader;
@@ -142,24 +141,24 @@ class WebGLGift {
 	// Animations
 	private clock: THREE.Clock;
 	private mixer: THREE.AnimationMixer;
-	private allClips: THREE.AnimationClip[];
-	private initAction: THREE.AnimationAction;
+	private allClips: THREE.AnimationClip[] = [];
+	private initAction: THREE.AnimationAction | undefined;
 	
-	private effectObjs: THREE.Group | null;
+	private effectObjs: THREE.Group | undefined;
 	
 	// Text
 	private tagText: Text;
 	
 	// Audio
 	private audioLoader: THREE.AudioLoader;
-	private audioSource_open: THREE.Audio;
-	private audioSource_drop: THREE.Audio;
+	private audioSource_open: THREE.Audio | undefined;
+	private audioSource_drop: THREE.Audio | undefined;
 	private listener: THREE.AudioListener;
 	
 	// Effects & Post Processing
 	private composer: EffectComposer;
-	private outlinePass: OutlinePass;
-	private outlinedObjects: THREE.Object3D[];
+	private outlinePass: OutlinePass | undefined;
+	private outlinedObjects: THREE.Object3D[] = [];
 	
 	private name: string;
 
@@ -172,69 +171,38 @@ class WebGLGift {
 		this.setText(this.tagText, value);
 	}
 
-	constructor(document: Document, window: Window, name: string = 'Unknown') {
-		this.document = document;
+	private onPlayCallback: (() => void) | undefined;
+
+	constructor(container: HTMLElement, window: Window, name: string = 'Unknown', onPlay?: (() => void)) {
 		this.window = window;
-		this.name = name;
-	}
 
-	start() {
-		// Checks for WebGL support
-		if (WebGL.isWebGL2Available()) {
-			// var stats = new Stats();
-			// this.document.body.appendChild(stats.dom);
-		
-			this.loadingManager = new THREE.LoadingManager();
-		
-			const progressBar: HTMLElement = this.document.getElementById('progress-bar')!;
-			this.loadingManager.onProgress = (_url, loaded, total) => {
-				if (progressBar instanceof HTMLProgressElement) progressBar.value = (loaded / total) * 100;
-			}
-		
-			const progressBarContainer: HTMLElement = this.document.querySelector('.progress-bar-container')!;
-			this.loadingManager.onLoad = () => {
-				// Hide progress bar container and play initial animations & audio.
-				setTimeout(() => {
-					progressBarContainer.style.display = 'none';
-					this.audioSource_drop.play(); // Only works after user interacts with page in some way due to autoplay policy.
-					this.initAction.play();
-					this.playSelectedClips(this.allClips, ['RaysRotation']);
-					this.raysToTag();
-				}, 1000); // Short delay to make sure animation is played properly.
-			}
-		
-			this.loadingManager.onError = (url) => {
-				console.error(`Error Loading: ${url}`);
-			}
-		
-			this.init();
-		} else {
-			const warning = WebGL.getWebGL2ErrorMessage();
-			this.document.getElementById('container')!.appendChild(warning);
-		}
-	}
-
-	
-	// Setup renderer & scene objects
-	init() {
-		this.container = this.document.getElementById('container')!;
+		this.container = container;
 		this.containerWidth = this.container.clientWidth;
 		this.containerHeight = this.container.clientHeight;
 		this.containerAspectRatio = this.containerWidth / this.containerHeight;
-	
+		
+		this.name = name;
+		this.onPlayCallback = onPlay;
+
+		if (!WebGL.isWebGL2Available()) {
+			throw 'WebGL is not available';
+		}
+
+		this.scene = new THREE.Scene();
+
 		this.renderer = new THREE.WebGLRenderer();
 		this.renderer.setSize(this.containerWidth, this.containerHeight);
 		this.renderer.setPixelRatio(this.window.devicePixelRatio);
 		this.renderer.shadowMap.enabled = true;
 		this.renderer.setAnimationLoop(() => this.animate());
+
+		this.renderer.domElement.style.setProperty('opacity', '0.0');
+		this.renderer.domElement.style.setProperty('transition', 'opacity 1s');
+
 		this.container.appendChild(this.renderer.domElement);
-	
-		this.window.addEventListener('resize', () => this.onWindowResize());
-		this.window.addEventListener('mousemove', (e) => this.onPointerMove(e));
-		this.window.addEventListener('pointerup', (e) => this.onPointerUp(e));
-	
-		this.scene = new THREE.Scene();
-	
+
+		this.loadingManager = new THREE.LoadingManager();
+
 		// Camera Setup
 		this.camera = new THREE.PerspectiveCamera(CONFIG.cameraFOV, this.containerAspectRatio, 0.1, 100);
 		this.camera.position.set(...CONFIG.cameraPosition);
@@ -248,13 +216,8 @@ class WebGLGift {
 		// Audio Setup
 		this.listener = new THREE.AudioListener();
 		this.camera.add(this.listener);
-	
-		this.audioSource_drop = new THREE.Audio(this.listener);
-		this.audioSource_open = new THREE.Audio(this.listener);
-	
+		
 		this.audioLoader = new THREE.AudioLoader(this.loadingManager);
-		this.loadAudio(CONFIG.dropSoundPath, this.audioSource_drop, CONFIG.volume);
-		this.loadAudio(CONFIG.openSoundPath, this.audioSource_open, CONFIG.volume);
 	
 		// Mouse/Pointer setup
 		this.pointer = new THREE.Vector2();
@@ -298,7 +261,37 @@ class WebGLGift {
 		// loader.setDRACOLoader(dracoLoader);
 	
 		this.textureLoader = new THREE.TextureLoader(this.loadingManager);
+
+		this.composer = new EffectComposer(this.renderer);
+	}
 	
+	// Setup renderer & scene objects
+	start() {
+		if (this.containerWidth === undefined || this.containerHeight === undefined) { return; }
+
+		this.loadingManager.onLoad = () => {
+			// Hide progress bar container and play initial animations & audio.
+			setTimeout(() => {
+				if (this.audioSource_drop === undefined || this.initAction === undefined) { return; }
+
+				this.renderer.domElement.style.setProperty('opacity', '1.0'); // Has a transition applied, so it fades in
+				this.audioSource_drop.play(); // Only works after user interacts with page in some way due to autoplay policy.
+				this.initAction.play();
+				this.playSelectedClips(this.allClips, ['RaysRotation']);
+				this.raysToTag();
+			}, 1000); // Short delay to make sure animation is played properly.
+		};
+	
+		this.loadingManager.onError = (url) => {
+			console.error(`Error Loading: ${url}`);
+		};
+	
+		this.audioSource_drop = new THREE.Audio(this.listener);
+		this.audioSource_open = new THREE.Audio(this.listener);
+
+		this.loadAudio(CONFIG.dropSoundPath, this.audioSource_drop, CONFIG.volume);
+		this.loadAudio(CONFIG.openSoundPath, this.audioSource_open, CONFIG.volume);
+
 		// Load GLTF models & textures
 		const boxTex = this.loadTexture(CONFIG.boxTexture, [3, 3]);
 		const floorTex = this.loadTexture(CONFIG.floorTexture);
@@ -326,13 +319,10 @@ class WebGLGift {
 		this.loadModel(CONFIG.raysModelPath);
 	
 		// Post processing setup
-		this.composer = new EffectComposer(this.renderer);
-	
 		const renderPass = new RenderPass(this.scene, this.camera);
 		this.composer.addPass(renderPass);
 	
 		this.outlinePass = new OutlinePass(new THREE.Vector2(this.containerWidth, this.containerHeight), this.scene, this.camera);
-		this.outlinedObjects = new Array();
 		this.outlinePass.visibleEdgeColor.set(CONFIG.highlightColor);
 		this.outlinePass.hiddenEdgeColor.set(CONFIG.highlightColor);
 		this.composer.addPass(this.outlinePass);
@@ -350,23 +340,27 @@ class WebGLGift {
 	
 		const outputPass = new OutputPass();
 		this.composer.addPass(outputPass);
-	
+
+		this.window.addEventListener('resize', () => this.onWindowResize());
+		this.window.addEventListener('mousemove', (e) => this.onPointerMove(e));
+		this.window.addEventListener('pointerup', (e) => this.onPointerUp(e));
+
 		this.onWindowResize();
 	}
 	
-	animate() {
+	private animate() {
 		const delta = this.clock.getDelta();
 	
 		this.mixer.update(delta);
 		this.raysToTag();
 	
-		if (CONFIG.controlsOn) this.controls.update();
+		if (CONFIG.controlsOn && this.controls !== undefined) this.controls.update();
 	
 		this.composer.render();
 	}
 	
 	// Callback. Updates scene render size to always fit container
-	onWindowResize() {
+	private onWindowResize() {
 		this.containerWidth = this.container.clientWidth;
 		this.containerHeight = this.container.clientHeight;
 	
@@ -389,7 +383,9 @@ class WebGLGift {
 	/**
 	 * Callback
 	 */
-	onPointerMove(event: { clientX: number; clientY: number; }) {
+	private onPointerMove(event: { clientX: number; clientY: number; }) {
+		if (this.containerWidth === undefined || this.containerHeight === undefined) { return; }
+
 		// Get the bounding box of the container to...
 		const rect = this.container.getBoundingClientRect();
 	
@@ -397,42 +393,40 @@ class WebGLGift {
 		this.pointer.x = ((event.clientX - rect.left) / this.containerWidth) * 2 - 1;
 		this.pointer.y = - ((event.clientY - rect.top) / this.containerHeight) * 2 + 1;
 	
-		this.checkIntersection();
+		this.checkIntersection(false);
 	}
 	
 	/**
 	 * Callback
 	 */
-	onPointerUp(_event: any) {
+	private onPointerUp(_event: any) {
 		this.checkIntersection(true);
 	}
 	
-	checkIntersection(clicked = false) {
+	private checkIntersection(clicked: boolean) {
+		if (this.outlinePass === undefined || this.audioSource_open === undefined) { return; }
+
 		this.raycaster.setFromCamera(this.pointer, this.camera);
 	
 		const intersects = this.raycaster.intersectObject(this.scene, true);
 	
 		// If pointer is over the box
 		if (intersects.length > 0 && this.selectableObjs.includes(intersects[0].object.parent!.name)) {
-	
 			// const selectedObject = intersects[0].object;
 			this.outlinePass.selectedObjects = this.outlinedObjects;
-	
-			const progressBarContainer: HTMLElement = this.document.querySelector('.progress-bar-container')!;
-	
+		
 			// If pointer has clicked, wasn't already opened, and scene is fully loaded
-			if (clicked && !this.opened && progressBarContainer.style.display == 'none') {
+			// if (clicked && !this.opened && progressBarContainer.style.display == 'none') {
+			if (clicked && !this.opened) {
 				this.audioSource_open.play();
 	
-				const info = this.document.getElementById('info');
-				if (info) info.style.display = 'none';
+				if (this.onPlayCallback !== undefined) this.onPlayCallback();
 	
 				this.playSelectedClips(this.allClips, this.boxOpeningClips, true);
 				this.outlinePass.selectedObjects = this.outlinedObjects = [];
 	
 				this.opened = true;
 			}
-	
 		} else {
 			this.outlinePass.selectedObjects = [];
 		}
@@ -441,7 +435,7 @@ class WebGLGift {
 	/**
 	 * Callback
 	 */
-	onAnimationFinish(event: { action: THREE.AnimationAction; direction: number; }) {
+	private onAnimationFinish(event: { action: THREE.AnimationAction; direction: number; }) {
 		switch (event.action.getClip().name) {
 			case 'ChargeEffect': // Dispose of charge effect objects when animation is finished.
 				this.effectObjs?.traverse((obj) => {
@@ -451,7 +445,7 @@ class WebGLGift {
 					}
 				});
 	
-				this.effectObjs = null;
+				this.effectObjs = undefined;
 				this.materials.effect.dispose();
 				break;
 		}
@@ -460,7 +454,7 @@ class WebGLGift {
 	/**
 	 * Loads model and sets material overrides.
 	 */
-	loadModel(modelPath: string) {
+	private loadModel(modelPath: string) {
 		this.gltfLoader.load(modelPath,
 	
 			(gltf) => { // onLoad
@@ -554,7 +548,7 @@ class WebGLGift {
 	 * @param {[number, number]} repeat - times the texture is repeated in each direction U and V.
 	 * @returns {THREE.Texture}
 	 */
-	loadTexture(
+	private loadTexture(
 		path: string,
 		repeat: [number, number] = [1, 1],
 		wrapS: THREE.Wrapping = THREE.RepeatWrapping,
@@ -590,7 +584,7 @@ class WebGLGift {
 	 * @param {number} volume - volume to play audio.
 	 * @param {boolean} loop - whether to loop audio.
 	 */
-	loadAudio(path: string, source: THREE.Audio, volume: number = 1.0, loop: boolean = false) {
+	private loadAudio(path: string, source: THREE.Audio, volume: number = 1.0, loop: boolean = false) {
 		this.audioLoader.load(path,
 	
 			(buffer) => {
@@ -619,7 +613,7 @@ class WebGLGift {
 	 * @param {THREE.Vector3Tuple} rotation - rotation of text.
 	 * @param {number} maxWidth - maximum width before wrapping.
 	 */
-	attachText(
+	private attachText(
 		obj: THREE.Object3D,
 		name: string,
 		font: string = CONFIG.fontPath,
@@ -664,7 +658,7 @@ class WebGLGift {
 	 * @param {Text} text - Text object.
 	 * @param {string} string - string to set.
 	 */
-	setText(text: Text, string: string) {
+	private setText(text: Text, string: string) {
 		text.text = `(${string})`;
 		text.sync(() => { this.adjustFontSize(text); })
 	}
@@ -675,7 +669,7 @@ class WebGLGift {
 	 * @param {Text} text - Text object.
 	 * @param {string} tries - number of tries for recursion.
 	 */
-	adjustFontSize(text: Text, tries: number = 20) {
+	private adjustFontSize(text: Text, tries: number = 20) {
 		const textInfo = text.textRenderInfo;
 	
 		if (textInfo) {
@@ -700,7 +694,7 @@ class WebGLGift {
 	 * @param {Array<THREE.AnimationClip>} clips - material to convert to.
 	 * @param {Array<string>} selection - original material.
 	 */
-	playSelectedClips(
+	private playSelectedClips(
 		clips: Array<THREE.AnimationClip>,
 		selection: Array<string>,
 		loopOnce?: boolean,
@@ -720,7 +714,7 @@ class WebGLGift {
 	/**
 	 * Allows object to be used for OutlinePass and enables shadows.
 	 */
-	outlineAndShadow(obj: THREE.Object3D) {
+	private outlineAndShadow(obj: THREE.Object3D) {
 		this.outlinedObjects.push(obj);
 		obj.castShadow = true;
 		obj.receiveShadow = true;
@@ -730,7 +724,7 @@ class WebGLGift {
 	/**
 	 * Moves the ray objects with the tag object without changing their rotation.
 	 */
-	raysToTag() {
+	private raysToTag() {
 		const tag = this.scene.getObjectByName('SanteeTag');
 		const sunburst = this.scene.getObjectByName('Sunburst');
 		const sunrays = this.scene.getObjectByName('Sunrays');
@@ -748,7 +742,7 @@ class WebGLGift {
 	}
 }
 
-// Just for convience
+// Just for convenience
 class Santee {
 	private gift: WebGLGift;
 
@@ -765,7 +759,11 @@ class Santee {
 	}
 }
 
-const webglGift = new WebGLGift(document, window, 'tadmozeltov');
+const webglGift = new WebGLGift(document.getElementById('container')!, window, 'tadmozeltov', () => {
+	const info = document.getElementById('info');
+				
+	if (info) info.style.display = 'none';
+});
 const santee = new Santee(webglGift);
 
 webglGift.start();
