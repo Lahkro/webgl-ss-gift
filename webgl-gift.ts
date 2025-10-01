@@ -137,6 +137,7 @@ class WebGLGift {
 	private loadingManager: THREE.LoadingManager;
 	
 	private materials: any;
+	private loaded: boolean = false;
 	
 	// Animations
 	private clock: THREE.Clock;
@@ -279,6 +280,7 @@ class WebGLGift {
 				this.initAction.play();
 				this.playSelectedClips(this.allClips, ['RaysRotation']);
 				this.raysToTag();
+				this.loaded = true;
 			}, 1000); // Short delay to make sure animation is played properly.
 		};
 	
@@ -404,7 +406,7 @@ class WebGLGift {
 	}
 	
 	private checkIntersection(clicked: boolean) {
-		if (this.outlinePass === undefined || this.audioSource_open === undefined) { return; }
+		if (this.outlinePass === undefined || this.audioSource_open === undefined || this.loaded == false) { return; }
 
 		this.raycaster.setFromCamera(this.pointer, this.camera);
 	
